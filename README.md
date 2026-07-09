@@ -32,7 +32,9 @@ for any machine repo's server code; nothing currently depends on it yet.
   scope — the MCP server must never fail to start just because config is
   missing (see PORTING.md's invariant in every machine repo).
 - `models.py` — PSI/J-style `JobSpec`/`ResourceSpec`/`JobAttributes`/`Job`/
-  `JobState`, with no per-machine defaults baked in.
+  `JobState`, with no per-machine defaults baked in. Also `Scheduler` (an
+  optional hint field for a machine that composes more than one
+  `SchedulerBackend`) and `map_ge_state` for Grid Engine.
 - `compute/base.py` — the `SchedulerBackend` ABC and scheduler-neutral
   script-body rendering (env vars, container wrapping, launcher prefix).
 - `compute/slurm.py` — a config-driven Slurm backend: `has_accounting`
@@ -43,6 +45,13 @@ for any machine repo's server code; nothing currently depends on it yet.
   porting knowledge-transfer reports and passes a mocked end-to-end test,
   but **is not yet verified against a real no-accounting cluster** — see
   the module docstring before trusting it on a live machine.
+- `compute/gridengine.py` — a Grid Engine backend (qsub/qstat/qacct/qdel),
+  promoted from shinobulab-cell-cluster-mcp (the only GE machine so far) and
+  verified to reproduce its exact rendered scripts. `host_pins`/
+  `queue_aliases`/`default_queue` generalize its host-pinning quirk into
+  config, since it's a plausible shape for other small GE clusters, not a
+  one-off. Live-tested as part of shinobulab-cell-cluster-mcp; **not yet
+  re-verified from this promoted copy against a real cluster**.
 - `rag/` — embedding client, BM25 + vector docs index, and an ingest
   pipeline that only ever chunks a bundled local guide (never clones a
   remote docs site — see the module docstring for why).
@@ -53,9 +62,9 @@ for any machine repo's server code; nothing currently depends on it yet.
 
 - `hpc_server.py` (the IRI-grouped Slurm/filesystem tool surface) and a
   `machine_profile.py` that turns `<machine>_config.json` into config-driven
-  scheduler dispatch — these need the `has_accounting` / `gpu_request_style`
-  / `gpu_vendor_map` schema design worked out first.
-- `compute/gridengine.py` — promoting shinobulab's Grid Engine backend.
+  scheduler dispatch — a machine currently wires a `SlurmBackend`/
+  `GridEngineBackend` by hand in its own `compute.py`; that's a deliberate
+  choice (PLAN.md §2a/§2b), not a placeholder for a missing feature.
 - Repointing any machine repo at this package as a dependency.
 
 ## Development

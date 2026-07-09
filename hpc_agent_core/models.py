@@ -56,6 +56,43 @@ def map_slurm_state(native: str) -> JobState:
     return _SLURM_STATE_MAP.get(native.split()[0].rstrip("+"), JobState.UNKNOWN)
 
 
+# qstat single/multi-letter state codes (Altair/Univa Grid Engine), verified
+# against shinobulab-cell-cluster-mcp's live-tested mapping (see PLAN.md §3b).
+_GE_STATE_MAP = {
+    "qw": JobState.QUEUED,    # waiting in queue
+    "hqw": JobState.HELD,     # held while waiting
+    "r": JobState.ACTIVE,     # running
+    "t": JobState.ACTIVE,     # transferring (starting)
+    "Rr": JobState.ACTIVE,    # re-started running (after node failure)
+    "dr": JobState.CANCELED,  # deletion requested while running
+    "dt": JobState.CANCELED,  # deletion requested while transferring
+    "Eqw": JobState.FAILED,   # error in waiting state
+    "Er": JobState.FAILED,    # error while running
+    "s": JobState.HELD,       # suspended by owner
+    "S": JobState.HELD,       # suspended by system/queue
+    "ts": JobState.HELD,      # transferring + suspended
+    "tS": JobState.HELD,      # transferring + system-suspended
+}
+
+
+def map_ge_state(native: str) -> JobState:
+    """Map a Grid Engine qstat state letter to the shared JobState IR.
+
+    Only covers live qstat letters; qacct-finished jobs are resolved by the
+    GE backend via the failed / exit_status fields, not a state letter.
+    """
+    return _GE_STATE_MAP.get(native, JobState.UNKNOWN)
+
+
+class Scheduler(str, Enum):
+    """Target batch scheduler for a job submission — only meaningful on a
+    machine that composes more than one SchedulerBackend (e.g. a cluster
+    with both a Slurm partition and a Grid Engine partition). Single-scheduler
+    machines can ignore this field entirely."""
+    SLURM = "slurm"
+    GRIDENGINE = "gridengine"
+
+
 class ResourceSpec(BaseModel):
     """Resources for a job (PSI/J ResourceSpec + a GPU extension).
 
@@ -91,6 +128,8 @@ class JobAttributes(BaseModel):
     account: str | None = Field(None, description="Account/project to charge")
     reservation_id: str | None = Field(None, description="Scheduler reservation name (--reservation)")
     custom_attributes: dict[str, str] = Field(default_factory=dict)
+    scheduler: Scheduler | None = Field(None, description="Override which SchedulerBackend handles this job, on a machine with more than one; None means the machine's tool layer decides (e.g. from queue_name)")
+    parallel_env: str = Field("smp", description="Grid Engine parallel environment (-pe); ignored by Slurm backends")
 
 
 class CompressionType(str, Enum):
