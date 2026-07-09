@@ -15,6 +15,14 @@ Each machine repo provides a tiny entry point, e.g.:
     if __name__ == "__main__":
         import sys
         sys.exit(main(scheduler_probe="sinfo --version", scheduler_name="slurm"))
+
+Extending this: main() is a convenience default (config, ssh+scheduler,
+guide-bundled, docs index, embedding), but every check_* function is
+independently callable. If a machine needs a different set (e.g. add a Spack
+check, skip embedding entirely, use a Grid Engine probe main() doesn't
+support), don't edit this file — write your own main() in your repo that
+calls whichever check_* functions you want, in whatever order, plus your own
+additions. Machine repos have no write access to hpc-agent-core (PLAN.md §2b).
 """
 import json
 import sys

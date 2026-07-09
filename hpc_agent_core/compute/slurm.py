@@ -10,6 +10,15 @@ container-flag lookup, but does NOT yet branch on has_accounting or
 gpu_request_style — that generalization (to also cover Octopus's untyped
 --gres dialect and Banyan/Dgx1's no-accounting squeue/scontrol dialect) is
 tracked as the next step, not done here.
+
+Extending this today, before that generalization lands: machine repos have
+no write access to hpc-agent-core (PLAN.md §2b), so a machine whose dialect
+this class doesn't cover should subclass SlurmBackend in its own repo and
+override just the method that differs — e.g. get_statuses/
+get_recent_statuses/cancel for a no-accounting scheduler (squeue/scontrol
+instead of sacct), or _header for a different GPU flag — rather than forking
+this whole file. Every method here is designed to be overridable
+independently for exactly this reason.
 """
 from __future__ import annotations
 

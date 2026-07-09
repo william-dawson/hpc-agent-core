@@ -1,8 +1,14 @@
 """Client for the embedding model served by the user's LLM serving infrastructure.
 
 Assumes an OpenAI-compatible `/v1/embeddings` endpoint (the shape exposed by
-vLLM, text-embeddings-inference, llama.cpp server, etc.). If your serving
-stack speaks a different dialect, this is the only file to change.
+vLLM, text-embeddings-inference, llama.cpp server, etc.).
+
+Extending this: machine repos cannot edit this file (there's no write access
+to hpc-agent-core — see PLAN.md §2b). If your serving stack speaks a
+different dialect, subclass EmbeddingClient in your own repo and override
+embed(), then pass an instance of it to DocsIndex(index_dir,
+embed_client=...) (see rag/store.py) instead of relying on get_client()'s
+default. Don't monkey-patch this module.
 """
 import httpx
 

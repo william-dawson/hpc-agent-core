@@ -19,6 +19,16 @@ invariant: the MCP server must never fail to start because config is
 missing or malformed; only an individual tool call that actually needs SSH
 should fail, with a clear message pointing at the machine's configuring
 skill.
+
+Extending this: machine repos cannot edit this file (no write access to
+hpc-agent-core — see PLAN.md §2b). get_frontend()'s Computer() construction
+(login-shell template, bash submitter, python3) is a fixed default; if a
+machine genuinely needs different connection parameters, don't fork this
+file — write an equivalent middleware.py in your own repo that builds its
+own Computer via remotemanager directly (using hpc_agent_core.config.ssh_host()
+for the host), and skip importing this module. That's a deliberate,
+acceptable outcome for an unusual machine, not a sign core needs a plugin
+hook — see PLAN.md §2a/§2b.
 """
 import base64
 import contextlib

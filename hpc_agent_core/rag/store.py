@@ -61,8 +61,16 @@ class _BM25:
 
 
 class DocsIndex:
-    def __init__(self, index_dir: Path):
+    def __init__(self, index_dir: Path, embed_client=None):
+        """embed_client overrides how vector search gets an EmbeddingClient —
+        pass your own (e.g. a subclass with a different embed() dialect) if
+        the default get_client() (config.embed_base_url()/embed_model(),
+        OpenAI-compatible) doesn't fit your machine. Resolved lazily (only
+        needed when embeddings.npy is present), so passing None costs nothing
+        for a BM25-only index.
+        """
         self.index_dir = Path(index_dir)
+        self._embed_client = embed_client
         with open(self.index_dir / "chunks.json") as f:
             self.chunks: list[dict] = json.load(f)
         self._bm25 = _BM25([chunk_text(c) for c in self.chunks])
@@ -77,7 +85,8 @@ class DocsIndex:
         """Return the top_k chunks with a 'score' and 'method' field added."""
         if self._embeddings is not None:
             try:
-                return self._vector_search(query, top_k, get_client())
+                client = self._embed_client or get_client()
+                return self._vector_search(query, top_k, client)
             except Exception:
                 pass  # endpoint down — degrade to keyword search
         return self._keyword_search(query, top_k)
