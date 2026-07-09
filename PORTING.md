@@ -390,18 +390,14 @@ Submit at least one real job — ideally one requesting a GPU if the machine
 has any — and confirm you can see it queue, run, and complete through the
 agent before considering this port finished.
 
-Pin `hpc-agent-core` in your `server/pyproject.toml`:
-
-```toml
-dependencies = [
-    "hpc-agent-core>=0.2,<0.3",
-    "mcp",
-]
-```
-
-(Check the current released version and pin a compatible range — don't
-leave it unpinned; a future core release could otherwise change what your
-users install with no warning.)
+Add `hpc-agent-core` as a dependency in your `server/pyproject.toml`, pinned
+to a compatible range rather than left unpinned — a future core release
+could otherwise change what your users install with no warning. Check
+`pip index versions hpc-agent-core` (or the PyPI project page) for
+whatever is actually current *right now* and pin against that — don't
+hardcode a version number from this guide, since it will go stale the
+moment a new `hpc-agent-core` ships. A reasonable pin shape once you know
+the current version `X.Y.Z` is `hpc-agent-core>=X.Y,<X.(Y+1)`.
 
 ## 10. Invariants that must hold, no exceptions
 
