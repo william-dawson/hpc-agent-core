@@ -235,6 +235,12 @@ Example:
 ```python
 # server/<machine>_mcp/compute.py
 from hpc_agent_core.compute.slurm import SlurmBackend
+from mymachine_mcp import config  # noqa: F401 -- registers via configure().
+# Import this even though nothing below calls it directly: SlurmBackend's
+# constructor doesn't need config yet, but this module must not depend on
+# being imported *after* config by whoever imports it (e.g. `import
+# mymachine_mcp.compute` in isolation, in a test or a REPL, would otherwise
+# crash the first time anything here actually talks to the cluster).
 
 backend = SlurmBackend(
     has_accounting=True,
