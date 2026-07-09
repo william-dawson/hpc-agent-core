@@ -34,12 +34,23 @@ through this registration rather than importing a machine-specific module
 directly, which is what lets one `middleware.run_command()` etc. work
 unmodified across every machine.
 
-Settings resolve in order: environment variable > the user config file
-(`~/.<env_prefix.lower()>/config.json`, override path via
-`<ENV_PREFIX>_CONFIG`) > the registered default. No credentials are stored
-in this module — SSH is key-based, and the only secret ever handled here is
-an optional embedding API key, read per-call rather than cached, so a
-changed key takes effect without a restart.
+Settings resolve in order: environment variable > the user config file >
+the registered default. The config file itself lives in one of two places
+(see config_path() for the exact resolution):
+
+- **Preferred**: `~/.hpc-agent/<env_prefix.lower()>.json` — one common
+  directory, one file per machine, so a user running several of these
+  plugins doesn't get a separate hidden dotdir per machine scattered across
+  their home directory (the same "one visible/common place beats several
+  scattered ones" reasoning as PLAN.md §3e's `~/agent/` job-output bias).
+- **Legacy** (still read, for backwards compatibility): the original
+  per-machine `~/.<env_prefix.lower()>/config.json` — kept working
+  indefinitely for anyone already using it; never required for new setups.
+
+`<ENV_PREFIX>_CONFIG` overrides either, to an arbitrary path. No credentials
+are stored in this module — SSH is key-based, and the only secret ever
+handled here is an optional embedding API key, read per-call rather than
+cached, so a changed key takes effect without a restart.
 """
 import json
 import os
@@ -104,7 +115,14 @@ def configure(*, env_prefix: str, default_host: str, package: str,
     """Register this machine's settings. Call exactly once, at import time,
     before any other hpc_agent_core module that reads config is used.
 
-    config_dir_name defaults to `.{env_prefix.lower()}` (e.g. "RIKYU" -> ".rikyu").
+    config_dir_name is the *legacy* per-machine config directory name, kept
+    only for backwards compatibility with configs written before the common
+    ~/.hpc-agent/ directory existed; it defaults to `.{env_prefix.lower()}`
+    (e.g. "RIKYU" -> ".rikyu", i.e. ~/.rikyu/config.json). New configs are
+    written to ~/.hpc-agent/{env_prefix.lower()}.json instead — see
+    config_path() for the exact resolution order. You don't need to set this
+    for a new machine; it exists so old configs keep working, not so new
+    ones can customize it.
     docs_filename (the bundled guide, under data/) defaults to
     `{package.removesuffix('_mcp')}_guide.md` (e.g. "rikyu_mcp" -> "rikyu_guide.md").
     docs_cite_url (see PLAN.md §3d) is the URL search results should cite —
@@ -148,13 +166,24 @@ def _reg() -> _Registration:
 @lru_cache(maxsize=1)
 def _config_path() -> Path:
     r = _reg()
-    env_var = f"{r.env_prefix}_CONFIG"
-    default = f"~/{r.config_dir_name}/config.json"
-    return Path(os.environ.get(env_var, default)).expanduser()
+    env_override = os.environ.get(f"{r.env_prefix}_CONFIG")
+    if env_override:
+        return Path(env_override).expanduser()
+
+    common_path = Path(f"~/.hpc-agent/{r.env_prefix.lower()}.json").expanduser()
+    legacy_path = Path(f"~/{r.config_dir_name}/config.json").expanduser()
+    # Legacy wins only if it's the *only* one that exists — an existing
+    # per-machine config keeps working untouched. Otherwise (both exist, or
+    # neither does yet) the common path wins, since it's both the preferred
+    # location and the right default target for a not-yet-created config.
+    if legacy_path.exists() and not common_path.exists():
+        return legacy_path
+    return common_path
 
 
 def config_path() -> Path:
-    """Path to the user config file (may not exist)."""
+    """Path to the user config file (may not exist) — see this module's
+    docstring for the common-vs-legacy-location resolution."""
     return _config_path()
 
 

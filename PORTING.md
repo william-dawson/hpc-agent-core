@@ -192,9 +192,16 @@ def load_cluster_config() -> dict:
         return json.load(f)
 ```
 
-Settings resolve environment variable > the user's `~/.<env_prefix.lower()>
-/config.json` > the default you gave `configure()`. You never need to
-implement this resolution yourself.
+Settings resolve environment variable > the user's config file > the
+default you gave `configure()`. The config file itself lives at
+`~/.hpc-agent/<env_prefix.lower()>.json` (one common directory shared by
+every machine's plugin, one file each) — `hpc-agent-core` also still reads
+the older per-machine `~/.<env_prefix.lower()>/config.json` location if
+that's the only one that exists, so nobody who already configured a plugin
+before this convention existed has to redo anything. You never need to
+implement this resolution yourself, and your skills/README should point
+users at the common `~/.hpc-agent/<slug>.json` location, not a per-machine
+dotdir.
 
 ## 6. Wire up `compute.py`
 
@@ -426,8 +433,8 @@ users install with no warning.)
   Machine-prefix the skill names so multiple plugins can be installed at
   once without collisions.
 - **README.md**: user-facing — what the machine is, how to configure
-  (`~/.<machine>/config.json`), how to install the plugin, how to verify
-  (`doctor`).
+  (`~/.hpc-agent/<machine>.json`, the common location — see §5), how to
+  install the plugin, how to verify (`doctor`).
 - **AGENTS.md**: agent-facing — the design rules from this guide
   (no-write-access to core, clarity over cleverness, the §10 invariants),
   the cluster facts from §1, and a repository map.
