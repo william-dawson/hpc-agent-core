@@ -35,10 +35,14 @@ for any machine repo's server code; nothing currently depends on it yet.
   `JobState`, with no per-machine defaults baked in.
 - `compute/base.py` — the `SchedulerBackend` ABC and scheduler-neutral
   script-body rendering (env vars, container wrapping, launcher prefix).
-- `compute/slurm.py` — a Slurm backend matching the Rikyu/HOKUSAI dialect
-  (accounting on, job-total `--gpus=N`). **Not yet** the fully config-driven
-  backend the plan describes (accounting on/off, `--gres` vs `--gpus`,
-  GPU-vendor container flags) — that generalization is the next step.
+- `compute/slurm.py` — a config-driven Slurm backend: `has_accounting`
+  (sacct vs. squeue+scontrol), `gpu_request_style` (`"gpus_total"` vs.
+  `"gres"`), and `gpu_vendor_map` (container GPU flag by partition prefix).
+  Verified against Rikyu's and Octopus's actual rendered scripts. The
+  `has_accounting=False` path (Banyan/Dgx1-style) is implemented from the
+  porting knowledge-transfer reports and passes a mocked end-to-end test,
+  but **is not yet verified against a real no-accounting cluster** — see
+  the module docstring before trusting it on a live machine.
 - `rag/` — embedding client, BM25 + vector docs index, and an ingest
   pipeline that only ever chunks a bundled local guide (never clones a
   remote docs site — see the module docstring for why).

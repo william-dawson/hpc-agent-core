@@ -1,24 +1,42 @@
-"""SlurmBackend — accounting-enabled, job-total GPU count dialect.
+"""SlurmBackend — config-driven across the dialects seen so far (PLAN.md §3a).
 
-Phase-1 extraction note (see PLAN.md §3a): this is NOT yet the fully
-config-driven SlurmBackend the plan describes. It matches Rikyu/Octopus's
-dialect today: accounting on (sacct/sacctmgr), a job-total GPU count mapped
-to --gpus (not --gpus-per-node or --gres), and Slurm deriving node_count
-from the GPU count unless node_count is set explicitly. The constructor
-takes gpu_vendor_flag as a first, minimal step toward §3a's config-driven
-container-flag lookup, but does NOT yet branch on has_accounting or
-gpu_request_style — that generalization (to also cover Octopus's untyped
---gres dialect and Banyan/Dgx1's no-accounting squeue/scontrol dialect) is
-tracked as the next step, not done here.
+Three independent knobs, each backed by real evidence from an existing or
+documented port rather than guessed:
 
-Extending this today, before that generalization lands: machine repos have
-no write access to hpc-agent-core (PLAN.md §2b), so a machine whose dialect
-this class doesn't cover should subclass SlurmBackend in its own repo and
-override just the method that differs — e.g. get_statuses/
-get_recent_statuses/cancel for a no-accounting scheduler (squeue/scontrol
-instead of sacct), or _header for a different GPU flag — rather than forking
-this whole file. Every method here is designed to be overridable
-independently for exactly this reason.
+- has_accounting (bool): whether sacct/sacctmgr are available.
+  * True  (Rikyu, Octopus): status comes from sacct; get_recent_statuses can
+    look back by --starttime.
+  * False (Banyan, Dgx1 — per the porting knowledge-transfer reports; not
+    live-verified in this repo, see the warning below): status comes from
+    squeue (live jobs) falling back to `scontrol show job` (jobs that just
+    finished — Slurm keeps these for a short time, MinJobAge, after which
+    they're simply gone; there is no longer-term history without sacct).
+    get_recent_statuses degrades to "the current user's live queue" — no
+    multi-day lookback is possible.
+- gpu_request_style ("gpus_total" | "gres"):
+  * "gpus_total" (Rikyu, HOKUSAI): --gpus=N is a job-wide count; Slurm
+    derives node_count from it, so --nodes is only emitted when the caller
+    explicitly overrides the default of 1.
+  * "gres" (Octopus, and per the KT reports, Banyan/Dgx1): --gres=gpu:N is
+    untyped; --nodes is always emitted from resources.node_count (Slurm
+    doesn't derive placement from --gres the way it does from --gpus).
+- gpu_vendor_map (dict[str, str]): partition-name-prefix -> container GPU
+  flag, e.g. {"h200": "--nv", "mi300x": "--rocm"} for Octopus's dual-vendor
+  cluster. Empty (the default) means single-vendor — every GPU job gets
+  default_gpu_vendor_flag, no branching, matching Rikyu/HOKUSAI.
+
+IMPORTANT — has_accounting=False is not live-verified here: it's implemented
+directly from the Banyan-port knowledge-transfer report's specific command
+recommendations (squeue/scontrol field names, the "no sacct read-back on
+cancel" rule), but no no-accounting machine is repointed at this package yet.
+Per the porting lessons ("doctor-green hid the real accounting gap"),
+confirm this path against a real job on a no-accounting machine before
+trusting it — don't assume doctor passing is enough.
+
+Extending further: machine repos have no write access to hpc-agent-core
+(PLAN.md §2b). A dialect these three knobs don't cover should subclass
+SlurmBackend in the machine's own repo and override just the one method
+that differs, rather than forking this file.
 """
 from __future__ import annotations
 
@@ -30,6 +48,9 @@ from hpc_agent_core.models import Job, JobSpec, JobState, JobStatus, map_slurm_s
 from .base import SchedulerBackend, duration_to_hms, parse_exit_code, render_body, to_epoch
 
 _SACCT_FIELDS = "JobID,JobName,Partition,State,Elapsed,Start,End,ExitCode,NodeList,WorkDir"
+_SQUEUE_FIELDS = "%i|%T|%R|%P|%Z"  # id|state|reason|partition|workdir(cwd at submit)
+
+_GPU_REQUEST_STYLES = ("gpus_total", "gres")
 
 
 def _parse_sacct(output: str) -> list[Job]:
@@ -67,7 +88,12 @@ def _parse_sacct(output: str) -> list[Job]:
 
 
 def _attach_reasons(jobs: list[Job]) -> list[Job]:
-    """For queued/held jobs, attach the squeue wait reason as status.message."""
+    """For queued/held jobs, attach the squeue wait reason as status.message.
+
+    Only used on the has_accounting=True path — sacct has no wait-reason
+    field, so this is a follow-up squeue call. The has_accounting=False path
+    gets the reason "for free" as part of its primary squeue query instead.
+    """
     waiting = [j for j in jobs if j.status and j.status.state in (JobState.QUEUED, JobState.HELD)]
     if not waiting:
         return jobs
@@ -82,17 +108,92 @@ def _attach_reasons(jobs: list[Job]) -> list[Job]:
     return jobs
 
 
+def _parse_squeue(output: str) -> list[Job]:
+    """Parse `squeue --format='{_SQUEUE_FIELDS}'` output (live jobs only —
+    finished jobs simply disappear from squeue)."""
+    jobs = []
+    for line in output.strip().splitlines():
+        parts = line.split("|")
+        if len(parts) < 5:
+            continue
+        job_id, native_state, reason, partition, workdir = parts[:5]
+        reason = reason.strip()
+        jobs.append(Job(
+            id=job_id,
+            status=JobStatus(
+                state=map_slurm_state(native_state),
+                message=reason if reason and reason not in ("None", "(null)") else None,
+                meta_data={"native_state": native_state, "partition": partition, "workdir": workdir},
+            ),
+        ))
+    return jobs
+
+
+def _parse_scontrol_show_job(output: str) -> Job | None:
+    """Parse `scontrol show job <id>` — the has_accounting=False fallback for
+    a job that just left the queue. Returns None if scontrol no longer knows
+    about it (it ages out ~MinJobAge, default 300s, after completion; past
+    that there is simply no record without sacct).
+    """
+    text = output.strip()
+    if not text or "invalid job id" in text.lower():
+        return None
+    fields: dict[str, str] = {}
+    for token in text.split():
+        if "=" in token:
+            key, _, val = token.partition("=")
+            fields[key] = val
+    job_id = fields.get("JobId")
+    if not job_id:
+        return None
+    native_state = fields.get("JobState", "")
+    end_epoch = to_epoch(fields.get("EndTime", ""))
+    start_epoch = to_epoch(fields.get("StartTime", ""))
+    return Job(
+        id=job_id,
+        status=JobStatus(
+            state=map_slurm_state(native_state),
+            time=end_epoch if end_epoch else start_epoch,
+            exit_code=parse_exit_code(fields.get("ExitCode", "")),
+            meta_data={
+                "native_state": native_state,
+                "partition": fields.get("Partition", ""),
+                "workdir": fields.get("WorkDir", ""),
+                "nodes": fields.get("NodeList", ""),
+            },
+        ),
+    )
+
+
 class SlurmBackend(SchedulerBackend):
     def __init__(self, name: str = "slurm", jobs_dir: str = "agent/jobs",
-                 gpu_vendor_flag: str = "--nv"):
+                 has_accounting: bool = True,
+                 gpu_request_style: str = "gpus_total",
+                 gpu_vendor_map: dict[str, str] | None = None,
+                 default_gpu_vendor_flag: str = "--nv"):
+        if gpu_request_style not in _GPU_REQUEST_STYLES:
+            raise ValueError(f"gpu_request_style must be one of {_GPU_REQUEST_STYLES}, got {gpu_request_style!r}")
         self.name = name
         self._jobs_dir = jobs_dir
-        self._gpu_vendor_flag = gpu_vendor_flag
+        self.has_accounting = has_accounting
+        self.gpu_request_style = gpu_request_style
+        self.gpu_vendor_map = dict(gpu_vendor_map or {})
+        self.default_gpu_vendor_flag = default_gpu_vendor_flag
+
+    def _resolve_gpu_vendor_flag(self, queue_name: str) -> str:
+        """partition-name prefix -> container GPU flag, e.g. Octopus's
+        {"h200": "--nv", "mi300x": "--rocm"}. Falls back to
+        default_gpu_vendor_flag when gpu_vendor_map is empty (single-vendor
+        machines like Rikyu/HOKUSAI) or the partition matches no prefix."""
+        for prefix, flag in self.gpu_vendor_map.items():
+            if queue_name.startswith(prefix):
+                return flag
+        return self.default_gpu_vendor_flag
 
     def _header(self, spec: JobSpec) -> list[str]:
         res = spec.resources
         attr = spec.attributes
-        # gpus (total for the job) takes precedence over PSI/J gpu_cores_per_process
+        # gpus takes precedence over PSI/J gpu_cores_per_process
         gpus = res.gpus if res.gpus else res.gpu_cores_per_process
 
         lines = [
@@ -102,12 +203,22 @@ class SlurmBackend(SchedulerBackend):
             f"#SBATCH --time={duration_to_hms(attr.duration)}",
         ]
         if gpus:
-            lines.append(f"#SBATCH --gpus={gpus}")
-        # Node count is derived by Slurm from --gpus on this dialect; only
-        # pin --nodes when the caller explicitly asks for a count other than
-        # the default of 1 (e.g. to control MPI placement).
-        if res.node_count != 1:
+            if self.gpu_request_style == "gpus_total":
+                lines.append(f"#SBATCH --gpus={gpus}")
+            else:  # "gres"
+                lines.append(f"#SBATCH --gres=gpu:{gpus}")
+
+        if self.gpu_request_style == "gpus_total":
+            # Slurm derives node_count from --gpus on this dialect; only pin
+            # --nodes when the caller explicitly asks for a count other than
+            # the default of 1 (e.g. to control MPI placement).
+            if res.node_count != 1:
+                lines.append(f"#SBATCH --nodes={res.node_count}")
+        else:
+            # "gres" dialect: Slurm does not derive placement from --gres,
+            # so --nodes is always explicit (matches Octopus today).
             lines.append(f"#SBATCH --nodes={res.node_count}")
+
         lines.append(f"#SBATCH --ntasks-per-node={res.processes_per_node}")
         if res.process_count:
             lines.append(f"#SBATCH --ntasks={res.process_count}")
@@ -138,7 +249,8 @@ class SlurmBackend(SchedulerBackend):
         """Render a JobSpec as an sbatch script."""
         res = spec.resources
         gpu_requested = bool(res.gpus or res.gpu_cores_per_process)
-        return "\n".join(self._header(spec)) + render_body(spec, gpu_requested, self._gpu_vendor_flag)
+        vendor_flag = self._resolve_gpu_vendor_flag(spec.attributes.queue_name)
+        return "\n".join(self._header(spec)) + render_body(spec, gpu_requested, vendor_flag)
 
     def submit(self, spec: JobSpec) -> dict:
         """Write the rendered script on the cluster and sbatch it."""
@@ -153,8 +265,31 @@ class SlurmBackend(SchedulerBackend):
             raise RuntimeError(f"sbatch failed: {output}")
         return {"job_id": job_id, "script_path": script_path}
 
+    def _get_status_no_accounting(self, job_id: str) -> Job:
+        """squeue (live) falling back to scontrol (just-finished); see the
+        has_accounting=False notes in this module's docstring."""
+        try:
+            squeue_out = run_command(f"squeue --job={shlex.quote(job_id)} --format='{_SQUEUE_FIELDS}' --noheader")
+        except RuntimeError:
+            squeue_out = ""  # squeue can error on an id it no longer knows about
+        live = _parse_squeue(squeue_out)
+        if live:
+            return live[0]
+        scontrol_out = run_command(f"scontrol show job {shlex.quote(job_id)}", )
+        job = _parse_scontrol_show_job(scontrol_out)
+        if job:
+            return job
+        return Job(id=job_id, status=JobStatus(
+            state=JobState.UNKNOWN,
+            message="Not found in squeue or scontrol. This machine has no Slurm "
+                    "accounting, so a job aged out of scontrol's short-lived "
+                    "record (~MinJobAge after completion) has no further history.",
+        ))
+
     def get_statuses(self, job_ids: list[str]) -> list[Job]:
         """Fetch normalized statuses for one or more jobs."""
+        if not self.has_accounting:
+            return [self._get_status_no_accounting(j) for j in job_ids]
         ids = ",".join(shlex.quote(j) for j in job_ids)
         output = run_command(
             f"sacct --jobs={ids} --format={_SACCT_FIELDS} --parsable2 --noheader"
@@ -162,7 +297,16 @@ class SlurmBackend(SchedulerBackend):
         return _attach_reasons(_parse_sacct(output))
 
     def get_recent_statuses(self, since: str = "now-2days") -> list[Job]:
-        """Statuses of the current user's jobs since the given time."""
+        """Statuses of the current user's jobs since the given time.
+
+        On a has_accounting=False machine, `since` is ignored: without
+        sacct there is no history to look back through, so this degrades to
+        the current user's live queue only (matches the Banyan/Dgx1 KT
+        reports' documented limitation).
+        """
+        if not self.has_accounting:
+            output = run_command(f"squeue -u $USER --format='{_SQUEUE_FIELDS}' --noheader")
+            return _parse_squeue(output)
         output = run_command(
             f"sacct --starttime={shlex.quote(since)} --format={_SACCT_FIELDS} "
             f"--parsable2 --noheader"
@@ -170,7 +314,15 @@ class SlurmBackend(SchedulerBackend):
         return _attach_reasons(_parse_sacct(output))
 
     def cancel(self, job_id: str) -> Job | str:
-        """scancel, then report the job's state."""
+        """scancel, then report the job's state.
+
+        On a has_accounting=False machine, the state is re-read via
+        squeue/scontrol rather than sacct (which doesn't exist there) —
+        per the Banyan KT report's explicit recommendation not to read the
+        final state back via sacct on this dialect.
+        """
         run_command(f"scancel {shlex.quote(job_id)}")
+        if not self.has_accounting:
+            return self._get_status_no_accounting(job_id)
         jobs = self.get_statuses([job_id])
         return jobs[0] if jobs else f"scancel sent; job {job_id} not found in sacct"
