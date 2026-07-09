@@ -22,7 +22,11 @@ for any machine repo's server code; nothing currently depends on it yet.
 
 - `config.py` — generic env/file/default settings resolution. A machine's
   own `config.py` calls `hpc_agent_core.config.configure(...)` once to
-  register its SSH default, embedding endpoint, and docs source.
+  register its SSH default, embedding endpoint, docs source, and (optionally)
+  any `remotemanager.Computer` option it needs to differ from the shared
+  defaults (`computer_defaults={...}` — see `COMPUTER_OPTION_NAMES` for the
+  full supported set: shell, timeout, keyfile, landing_dir, transport, ...).
+  A machine sets these once in its own repo; the end user never has to.
 - `middleware.py` — the SSH execution layer (base64 payloads, login shell,
   clean error surfacing). Never touches config or the network above module
   scope — the MCP server must never fail to start just because config is

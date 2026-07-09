@@ -12,6 +12,11 @@ time, before anything else in the machine package touches config:
         package="rikyu_mcp",              # for resources.files(package) / bundled data
         embed_base_url="http://llm.ai.r-ccs.riken.jp:11434/v1",
         embed_model="bge-m3:567m",
+        # Only needed if this machine's login node needs a different
+        # remotemanager.Computer option than the shared defaults (bash
+        # login-shell template, bash submitter, python3) — see
+        # COMPUTER_OPTION_NAMES for the full set a machine can override:
+        # computer_defaults={"shell": "zsh", "timeout": 20},
     )
 
     # re-export what the rest of the machine package expects to import from
@@ -45,6 +50,34 @@ from importlib import resources
 from pathlib import Path
 
 
+#: The full remotemanager Computer/URL/Script constructor surface that a
+#: machine (or, rarely, an end user) may want to override. "host" is
+#: deliberately excluded — it's already governed by ssh_host()'s own
+#: env > file > default chain, so it isn't duplicated here. Kept as a
+#: constant so middleware.py and any machine inspecting valid keys have one
+#: source of truth instead of a string literal repeated in two places.
+COMPUTER_OPTION_NAMES = frozenset({
+    # URL.__init__
+    "user", "port", "verbose", "timeout", "max_timeouts", "python",
+    "submitter", "shell", "raise_errors", "error_ignore_patterns", "keyfile",
+    "passfile", "envpass", "sshpass_override", "cmd_history_depth",
+    "landing_dir", "ssh_insert", "ssh_prepend", "ssh_override", "quiet_ssh",
+    "shebang", "transport",
+    # Script.__init__
+    "template", "template_path", "empty_treatment", "header_only",
+})
+
+#: Sensible defaults matching what every machine repo used identically
+#: before this was generalized (see PLAN.md §2c) — a login shell template,
+#: bash submitter, python3. A machine only needs to pass computer_defaults
+#: for the options where it genuinely differs from these.
+_BASE_COMPUTER_DEFAULTS = {
+    "template": "#!/bin/bash -l",
+    "submitter": "bash",
+    "python": "python3",
+}
+
+
 @dataclass(frozen=True)
 class _Registration:
     env_prefix: str
@@ -55,6 +88,7 @@ class _Registration:
     config_dir_name: str
     docs_filename: str
     docs_cite_url: str
+    computer_defaults: dict
 
 
 _REG: _Registration | None = None
@@ -65,7 +99,8 @@ def configure(*, env_prefix: str, default_host: str, package: str,
               embed_base_url: str, embed_model: str,
               config_dir_name: str | None = None,
               docs_filename: str | None = None,
-              docs_cite_url: str = "") -> None:
+              docs_cite_url: str = "",
+              computer_defaults: dict | None = None) -> None:
     """Register this machine's settings. Call exactly once, at import time,
     before any other hpc_agent_core module that reads config is used.
 
@@ -75,8 +110,16 @@ def configure(*, env_prefix: str, default_host: str, package: str,
     docs_cite_url (see PLAN.md §3d) is the URL search results should cite —
     leave blank (the default) when there's no live docs site worth pointing
     users at; only set it for a machine with a stable, reliable public site.
+    computer_defaults overrides any of COMPUTER_OPTION_NAMES for this
+    machine's remotemanager.Computer (see computer_kwargs()) — e.g. a
+    machine whose login shell needs a different `shell`, a longer `timeout`,
+    or a specific `keyfile`. Leave unset for machines that work fine with
+    _BASE_COMPUTER_DEFAULTS (the common case so far).
     """
     global _REG
+    unknown = set((computer_defaults or {})) - COMPUTER_OPTION_NAMES
+    if unknown:
+        raise ValueError(f"computer_defaults has unknown Computer option(s): {sorted(unknown)}")
     _REG = _Registration(
         env_prefix=env_prefix,
         default_host=default_host,
@@ -86,6 +129,7 @@ def configure(*, env_prefix: str, default_host: str, package: str,
         config_dir_name=config_dir_name or f".{env_prefix.lower()}",
         docs_filename=docs_filename or f"{package.removesuffix('_mcp')}_guide.md",
         docs_cite_url=docs_cite_url,
+        computer_defaults=dict(computer_defaults or {}),
     )
     _config_path.cache_clear()
     _data_dir.cache_clear()
@@ -185,3 +229,26 @@ def docs_index_dir() -> Path:
 def docs_cite_url() -> str:
     """URL search results should cite, or "" to cite nothing (see PLAN.md §3d)."""
     return _reg().docs_cite_url
+
+
+def computer_kwargs() -> dict:
+    """Resolved kwargs for constructing this machine's remotemanager.Computer
+    (everything except `host`, which stays governed by ssh_host()).
+
+    Precedence: _BASE_COMPUTER_DEFAULTS < the machine's own
+    configure(computer_defaults=...) < a "computer" object in the end
+    user's config file. The file layer exists for the rare case a user
+    needs to override something themselves (e.g. a slower network needing
+    a longer timeout) — most machines never need anyone to touch this.
+    """
+    r = _reg()
+    resolved = dict(_BASE_COMPUTER_DEFAULTS)
+    resolved.update(r.computer_defaults)
+    file_overrides = _file_config().get("computer", {})
+    unknown = set(file_overrides) - COMPUTER_OPTION_NAMES
+    if unknown:
+        raise RuntimeError(
+            f"{config_path()}: \"computer\" has unknown option(s): {sorted(unknown)}"
+        )
+    resolved.update(file_overrides)
+    return resolved

@@ -67,13 +67,17 @@ def quote_path(path: str) -> str:
 
 @lru_cache(maxsize=1)
 def get_frontend() -> Computer:
-    """The (cached) Computer targeting the machine's login node."""
-    return Computer(
-        template="#!/bin/bash -l",
-        host=config.ssh_host(),
-        submitter="bash",
-        python="python3",
-    )
+    """The (cached) Computer targeting the machine's login node.
+
+    Every remotemanager.Computer constructor option is supported here, not
+    just the four (template/host/submitter/python) every machine happened
+    to share so far — see config.COMPUTER_OPTION_NAMES and
+    config.computer_kwargs(). A machine that needs something different
+    (a non-bash shell, a longer timeout, a specific keyfile, ...) sets it
+    via configure(computer_defaults=...) in its own config.py; it does not
+    need to touch this function.
+    """
+    return Computer(host=config.ssh_host(), **config.computer_kwargs())
 
 
 def run_command(cmd: str) -> str:
