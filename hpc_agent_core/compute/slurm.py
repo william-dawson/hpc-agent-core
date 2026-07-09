@@ -381,3 +381,33 @@ class SlurmBackend(SchedulerBackend):
             return self._get_status_no_accounting(job_id)
         jobs = self.get_statuses([job_id])
         return jobs[0] if jobs else f"scancel sent; job {job_id} not found in sacct"
+
+    def get_live_resources(self) -> list[dict]:
+        """Live per-partition node occupancy via `sinfo --summarize`.
+        Generic across every Slurm machine — not specific to any dialect
+        knob on this class, so no machine repo needs to reimplement this."""
+        output = run_command("sinfo --summarize --format='%P|%a|%l|%F'")
+        partitions = []
+        for line in output.strip().splitlines():
+            parts = line.split("|")
+            if len(parts) != 4 or parts[0] == "PARTITION":
+                continue
+            alloc, idle, other, total = parts[3].split("/")
+            partitions.append({
+                "partition": parts[0].rstrip("*"),
+                "available": parts[1],
+                "time_limit": parts[2],
+                "nodes": {"allocated": int(alloc), "idle": int(idle),
+                          "other": int(other), "total": int(total)},
+            })
+        return partitions
+
+    def get_drained_nodes(self) -> list[dict]:
+        """Nodes currently drained/down and why, via `sinfo -R`."""
+        output = run_command("sinfo -R --format='%N|%T|%E' --noheader")
+        drained = []
+        for line in output.strip().splitlines():
+            parts = line.split("|", 2)
+            if len(parts) == 3:
+                drained.append({"nodes": parts[0], "state": parts[1], "reason": parts[2]})
+        return drained

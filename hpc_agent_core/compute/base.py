@@ -107,3 +107,25 @@ class SchedulerBackend(ABC):
     @abstractmethod
     def cancel(self, job_id: str) -> Job | str:
         """Cancel *job_id* and return its resulting state."""
+
+    def get_live_resources(self) -> list[dict]:
+        """Live per-partition/queue occupancy (allocated/idle/other/total
+        node counts) — the IRI `GET /resources` list, i.e. "will a job start
+        soon", as opposed to get_facility's static hardware description.
+
+        Optional: not every scheduler backend implements this (the default
+        raises NotImplementedError so a machine's hpc_server.py gets a clear
+        error rather than something silently returning nothing). Override in
+        a subclass if your scheduler supports a live query for this —
+        SlurmBackend already does, via sinfo.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement get_live_resources()"
+        )
+
+    def get_drained_nodes(self) -> list[dict]:
+        """Nodes currently drained/down and why, if the scheduler exposes
+        this. Optional, same default-raises convention as get_live_resources()."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement get_drained_nodes()"
+        )

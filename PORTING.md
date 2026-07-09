@@ -6,8 +6,19 @@ jobs, manage files, and search documentation for a specific supercomputer.
 It assumes **no other context**: you do not need to have seen any existing
 machine repo to follow this. Read it in full before writing any code.
 
-Copy this file verbatim into your new repo's root as `PORTING.md`. Do not
-edit `hpc-agent-core` itself — you have no write access to it (see §0).
+**Don't copy this file into your new repo.** Earlier versions of this guide
+said to — but since every machine repo genuinely depends on `hpc-agent-core`
+as a package now, a copy is just a second place for this guide to go stale
+in (exactly the kind of drift this guide already warns against elsewhere:
+a hardcoded version number in an earlier revision of this file went stale
+within the same day it was written, and a copied `PORTING.md` would be the
+same mistake at a larger scale). Instead, put one line in your repo's
+`AGENTS.md`/`README.md` pointing at the canonical copy — e.g. "See
+[hpc-agent-core's `PORTING.md`](https://github.com/william-dawson/hpc-agent-core/blob/main/PORTING.md)
+for the general porting process this repo follows" — and keep only what's
+genuinely specific to your machine in your own repo (cluster facts,
+decisions made under uncertainty, a repo map). Do not edit `hpc-agent-core`
+itself — you have no write access to it (see §0).
 
 ## 0. The mental model
 
@@ -237,6 +248,7 @@ get_statuses = backend.get_statuses
 get_recent_statuses = backend.get_recent_statuses
 cancel = backend.cancel
 render_script = backend.render_script
+get_live_resources = backend.get_live_resources   # raises NotImplementedError if your backend doesn't support it
 ```
 
 If your dialect genuinely doesn't fit any row above, don't force it —
@@ -306,6 +318,18 @@ mcp = FastMCP("mymachine-hpc")
 def get_facility() -> dict:
     """Static facility facts: partitions, modules, storage. (IRI: GET /facility)"""
     return config.load_cluster_config()
+
+
+@mcp.tool()
+def get_resources() -> list[dict]:
+    """Live per-partition node occupancy — "will a job start soon", as
+    opposed to get_facility's static hardware description. Backed by
+    compute.py's SchedulerBackend, not by mymachine_config.json — don't
+    reimplement this as static config data (an easy mistake: a machine
+    built without live cluster access once did exactly this, and it's a
+    real functionality gap, not just a style difference). (IRI: GET /resources)
+    """
+    return compute.get_live_resources()
 
 
 @mcp.tool()

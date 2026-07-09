@@ -49,7 +49,11 @@ for any machine repo's server code; nothing currently depends on it yet.
   (Banyan/Dgx1-style) is implemented from the porting knowledge-transfer
   reports and passes a mocked end-to-end test, but **is not yet verified
   against a real no-accounting cluster** — see the module docstring before
-  trusting it on a live machine.
+  trusting it on a live machine. Also provides `get_live_resources()`/
+  `get_drained_nodes()` (live per-partition occupancy via `sinfo`) — a
+  machine's `get_resources` tool should call this rather than returning
+  static config data, a real gap the first clean-room port using this guide
+  found in practice.
 - `compute/gridengine.py` — a Grid Engine backend (qsub/qstat/qacct/qdel),
   promoted from shinobulab-cell-cluster-mcp (the only GE machine so far) and
   verified to reproduce its exact rendered scripts. `host_pins`/
