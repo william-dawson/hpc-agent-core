@@ -39,12 +39,17 @@ for any machine repo's server code; nothing currently depends on it yet.
   script-body rendering (env vars, container wrapping, launcher prefix).
 - `compute/slurm.py` — a config-driven Slurm backend: `has_accounting`
   (sacct vs. squeue+scontrol), `gpu_request_style` (`"gpus_total"` vs.
-  `"gres"`), and `gpu_vendor_map` (container GPU flag by partition prefix).
-  Verified against Rikyu's and Octopus's actual rendered scripts. The
-  `has_accounting=False` path (Banyan/Dgx1-style) is implemented from the
-  porting knowledge-transfer reports and passes a mocked end-to-end test,
-  but **is not yet verified against a real no-accounting cluster** — see
-  the module docstring before trusting it on a live machine.
+  `"gres"`) and the *independent* `nodes_always_explicit` (whether Slurm
+  derives node count from the GPU count, or `--nodes` is always emitted —
+  these two don't always move together, see `PHASE4_AUDIT.md` §1.1),
+  `no_gpu_flag_prefixes` (partitions needing no GPU flag at all, e.g. a
+  unified CPU+GPU superchip), and `gpu_vendor_map` (container GPU flag by
+  partition prefix). Verified against Rikyu's, Octopus's, *and*
+  RCCS-Cloud's actual rendered scripts. The `has_accounting=False` path
+  (Banyan/Dgx1-style) is implemented from the porting knowledge-transfer
+  reports and passes a mocked end-to-end test, but **is not yet verified
+  against a real no-accounting cluster** — see the module docstring before
+  trusting it on a live machine.
 - `compute/gridengine.py` — a Grid Engine backend (qsub/qstat/qacct/qdel),
   promoted from shinobulab-cell-cluster-mcp (the only GE machine so far) and
   verified to reproduce its exact rendered scripts. `host_pins`/

@@ -1,11 +1,11 @@
 """SlurmBackend — config-driven across the dialects seen so far (PLAN.md §3a).
 
-Three independent knobs, each backed by real evidence from an existing or
+Independent knobs, each backed by real evidence from an existing or
 documented port rather than guessed:
 
 - has_accounting (bool): whether sacct/sacctmgr are available.
-  * True  (Rikyu, Octopus): status comes from sacct; get_recent_statuses can
-    look back by --starttime.
+  * True  (Rikyu, Octopus, RCCS-Cloud): status comes from sacct;
+    get_recent_statuses can look back by --starttime.
   * False (Banyan, Dgx1 — per the porting knowledge-transfer reports; not
     live-verified in this repo, see the warning below): status comes from
     squeue (live jobs) falling back to `scontrol show job` (jobs that just
@@ -13,13 +13,23 @@ documented port rather than guessed:
     they're simply gone; there is no longer-term history without sacct).
     get_recent_statuses degrades to "the current user's live queue" — no
     multi-day lookback is possible.
-- gpu_request_style ("gpus_total" | "gres"):
-  * "gpus_total" (Rikyu, HOKUSAI): --gpus=N is a job-wide count; Slurm
-    derives node_count from it, so --nodes is only emitted when the caller
-    explicitly overrides the default of 1.
-  * "gres" (Octopus, and per the KT reports, Banyan/Dgx1): --gres=gpu:N is
-    untyped; --nodes is always emitted from resources.node_count (Slurm
-    doesn't derive placement from --gres the way it does from --gpus).
+- gpu_request_style ("gpus_total" | "gres"): which flag requests GPUs.
+  * "gpus_total" (Rikyu, HOKUSAI, RCCS-Cloud): --gpus=N is a job-wide count.
+  * "gres" (Octopus, and per the KT reports, Banyan/Dgx1): --gres=gpu:N,
+    untyped.
+- nodes_always_explicit (bool | None): whether Slurm derives node count from
+  the GPU count (so --nodes is only emitted when the caller overrides the
+  default of 1) or --nodes is always emitted. **Independent of
+  gpu_request_style** — this conflation was PHASE4_AUDIT.md §1.1's finding:
+  RCCS-Cloud uses the "gpus_total" flag but always emits --nodes explicitly,
+  a combination the two of these together (not one enum) are needed to
+  express. Defaults to True for "gres", False for "gpus_total" when not
+  given explicitly, matching every dialect seen so far without an override;
+  RCCS-Cloud is the one machine that needs to override it.
+- no_gpu_flag_prefixes (frozenset[str]): partition-name prefixes that get NO
+  GPU flag at all, e.g. RCCS-Cloud's unified CPU+GPU superchip partitions
+  ("qc-gh200", "ng-dgx-m") where the GPU is implicit and --gpus/--gres would
+  be wrong to emit.
 - gpu_vendor_map (dict[str, str]): partition-name-prefix -> container GPU
   flag, e.g. {"h200": "--nv", "mi300x": "--rocm"} for Octopus's dual-vendor
   cluster. Empty (the default) means single-vendor — every GPU job gets
@@ -118,11 +128,18 @@ def _parse_squeue(output: str) -> list[Job]:
             continue
         job_id, native_state, reason, partition, workdir = parts[:5]
         reason = reason.strip()
+        state = map_slurm_state(native_state)
+        # %R is a wait reason for QUEUED/HELD jobs but the *node list* for an
+        # ACTIVE job — only surface it as `message` where it's actually a
+        # reason, so message doesn't hold a node name for a running job.
+        message = None
+        if state in (JobState.QUEUED, JobState.HELD) and reason and reason not in ("None", "(null)"):
+            message = reason
         jobs.append(Job(
             id=job_id,
             status=JobStatus(
-                state=map_slurm_state(native_state),
-                message=reason if reason and reason not in ("None", "(null)") else None,
+                state=state,
+                message=message,
                 meta_data={"native_state": native_state, "partition": partition, "workdir": workdir},
             ),
         ))
@@ -169,14 +186,37 @@ class SlurmBackend(SchedulerBackend):
     def __init__(self, name: str = "slurm", jobs_dir: str = "agent/jobs",
                  has_accounting: bool = True,
                  gpu_request_style: str = "gpus_total",
+                 nodes_always_explicit: bool | None = None,
+                 no_gpu_flag_prefixes: frozenset[str] | None = None,
                  gpu_vendor_map: dict[str, str] | None = None,
                  default_gpu_vendor_flag: str = "--nv"):
+        """
+        gpu_request_style / nodes_always_explicit are deliberately two
+        independent knobs (PHASE4_AUDIT.md §1.1 caught this — RCCS-Cloud
+        uses "gpus_total"'s flag but "gres"'s always-explicit --nodes,
+        a combination a single conflated enum couldn't express):
+        - gpu_request_style: "gpus_total" (--gpus=N) | "gres" (--gres=gpu:N).
+        - nodes_always_explicit: when False, --nodes is omitted unless the
+          caller sets node_count != 1, letting Slurm derive placement from
+          the GPU count (Rikyu/HOKUSAI). When True, --nodes is always
+          emitted (Octopus, RCCS-Cloud). Defaults to True for "gres" and
+          False for "gpus_total" if not given explicitly — matching every
+          real dialect seen so far without needing an override — but
+          RCCS-Cloud needs the explicit override (gpus_total + always-explicit).
+        no_gpu_flag_prefixes: partition-name prefixes that need NO GPU flag
+          at all, e.g. RCCS-Cloud's unified CPU+GPU superchip partitions
+          ("qc-gh200", "ng-dgx-m") where --gpus/--gres would be wrong to emit.
+        """
         if gpu_request_style not in _GPU_REQUEST_STYLES:
             raise ValueError(f"gpu_request_style must be one of {_GPU_REQUEST_STYLES}, got {gpu_request_style!r}")
         self.name = name
         self._jobs_dir = jobs_dir
         self.has_accounting = has_accounting
         self.gpu_request_style = gpu_request_style
+        self.nodes_always_explicit = (
+            (gpu_request_style == "gres") if nodes_always_explicit is None else nodes_always_explicit
+        )
+        self.no_gpu_flag_prefixes = frozenset(no_gpu_flag_prefixes or ())
         self.gpu_vendor_map = dict(gpu_vendor_map or {})
         self.default_gpu_vendor_flag = default_gpu_vendor_flag
 
@@ -190,6 +230,11 @@ class SlurmBackend(SchedulerBackend):
                 return flag
         return self.default_gpu_vendor_flag
 
+    def _gpu_flag_suppressed(self, queue_name: str) -> bool:
+        """True for a partition where no --gpus/--gres flag should be
+        emitted at all (e.g. a unified CPU+GPU superchip partition)."""
+        return any(queue_name.startswith(p) for p in self.no_gpu_flag_prefixes)
+
     def _header(self, spec: JobSpec) -> list[str]:
         res = spec.resources
         attr = spec.attributes
@@ -202,21 +247,13 @@ class SlurmBackend(SchedulerBackend):
             f"#SBATCH --partition={attr.queue_name}",
             f"#SBATCH --time={duration_to_hms(attr.duration)}",
         ]
-        if gpus:
+        if gpus and not self._gpu_flag_suppressed(attr.queue_name):
             if self.gpu_request_style == "gpus_total":
                 lines.append(f"#SBATCH --gpus={gpus}")
             else:  # "gres"
                 lines.append(f"#SBATCH --gres=gpu:{gpus}")
 
-        if self.gpu_request_style == "gpus_total":
-            # Slurm derives node_count from --gpus on this dialect; only pin
-            # --nodes when the caller explicitly asks for a count other than
-            # the default of 1 (e.g. to control MPI placement).
-            if res.node_count != 1:
-                lines.append(f"#SBATCH --nodes={res.node_count}")
-        else:
-            # "gres" dialect: Slurm does not derive placement from --gres,
-            # so --nodes is always explicit (matches Octopus today).
+        if self.nodes_always_explicit or res.node_count != 1:
             lines.append(f"#SBATCH --nodes={res.node_count}")
 
         lines.append(f"#SBATCH --ntasks-per-node={res.processes_per_node}")
@@ -265,17 +302,10 @@ class SlurmBackend(SchedulerBackend):
             raise RuntimeError(f"sbatch failed: {output}")
         return {"job_id": job_id, "script_path": script_path}
 
-    def _get_status_no_accounting(self, job_id: str) -> Job:
-        """squeue (live) falling back to scontrol (just-finished); see the
-        has_accounting=False notes in this module's docstring."""
-        try:
-            squeue_out = run_command(f"squeue --job={shlex.quote(job_id)} --format='{_SQUEUE_FIELDS}' --noheader")
-        except RuntimeError:
-            squeue_out = ""  # squeue can error on an id it no longer knows about
-        live = _parse_squeue(squeue_out)
-        if live:
-            return live[0]
-        scontrol_out = run_command(f"scontrol show job {shlex.quote(job_id)}", )
+    def _scontrol_fallback(self, job_id: str) -> Job:
+        """scontrol show job <id> — the has_accounting=False fallback for a
+        job not found live in squeue."""
+        scontrol_out = run_command(f"scontrol show job {shlex.quote(job_id)}")
         job = _parse_scontrol_show_job(scontrol_out)
         if job:
             return job
@@ -286,10 +316,35 @@ class SlurmBackend(SchedulerBackend):
                     "record (~MinJobAge after completion) has no further history.",
         ))
 
+    def _get_status_no_accounting(self, job_id: str) -> Job:
+        """squeue (live) falling back to scontrol (just-finished), for a
+        single job_id — used by cancel(). get_statuses() batches the squeue
+        call across every requested id instead of calling this per-id."""
+        try:
+            squeue_out = run_command(f"squeue --jobs={shlex.quote(job_id)} --format='{_SQUEUE_FIELDS}' --noheader")
+        except RuntimeError:
+            squeue_out = ""  # squeue can error on an id it no longer knows about
+        live = _parse_squeue(squeue_out)
+        return live[0] if live else self._scontrol_fallback(job_id)
+
+    def _get_statuses_no_accounting(self, job_ids: list[str]) -> list[Job]:
+        """One batched squeue call for every requested id (live jobs), then
+        scontrol only for whichever ids weren't found live — cuts SSH
+        round-trips substantially versus querying each id independently."""
+        if not job_ids:
+            return []
+        ids = ",".join(shlex.quote(j) for j in job_ids)
+        try:
+            squeue_out = run_command(f"squeue --jobs={ids} --format='{_SQUEUE_FIELDS}' --noheader")
+        except RuntimeError:
+            squeue_out = ""  # squeue can error if the whole batch has an id it doesn't know
+        live = {j.id: j for j in _parse_squeue(squeue_out)}
+        return [live[jid] if jid in live else self._scontrol_fallback(jid) for jid in job_ids]
+
     def get_statuses(self, job_ids: list[str]) -> list[Job]:
         """Fetch normalized statuses for one or more jobs."""
         if not self.has_accounting:
-            return [self._get_status_no_accounting(j) for j in job_ids]
+            return self._get_statuses_no_accounting(job_ids)
         ids = ",".join(shlex.quote(j) for j in job_ids)
         output = run_command(
             f"sacct --jobs={ids} --format={_SACCT_FIELDS} --parsable2 --noheader"

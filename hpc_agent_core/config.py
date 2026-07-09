@@ -170,11 +170,20 @@ def _file_config() -> dict:
         raise RuntimeError(f"Malformed config file {path}: {e}") from e
 
 
+def _section(key: str) -> dict:
+    """A dict-typed top-level section of the config file, or {} if the key
+    is absent *or* explicitly null (`{"ssh": null}` is valid JSON and an easy
+    hand-edit mistake — `.get(key, {})` alone only supplies the default when
+    the key is missing, not when its value is None, so callers must not use
+    that pattern directly for these sections)."""
+    return _file_config().get(key) or {}
+
+
 def ssh_host() -> str:
     """SSH destination for the machine's login node (alias or user@hostname)."""
     r = _reg()
     return (os.environ.get(f"{r.env_prefix}_HOST")
-            or _file_config().get("ssh", {}).get("host")
+            or _section("ssh").get("host")
             or r.default_host)
 
 
@@ -196,10 +205,9 @@ def embed_api_key() -> str:
     file. Empty string means no auth header is sent.
     """
     r = _reg()
-    file = _file_config().get("embedding", {})
     return (os.environ.get(f"{r.env_prefix}_EMBED_API_KEY")
             or os.environ.get("RCCS_EMBED_API_KEY")
-            or file.get("api_key") or "")
+            or _section("embedding").get("api_key") or "")
 
 
 @lru_cache(maxsize=1)
@@ -244,7 +252,7 @@ def computer_kwargs() -> dict:
     r = _reg()
     resolved = dict(_BASE_COMPUTER_DEFAULTS)
     resolved.update(r.computer_defaults)
-    file_overrides = _file_config().get("computer", {})
+    file_overrides = _section("computer")
     unknown = set(file_overrides) - COMPUTER_OPTION_NAMES
     if unknown:
         raise RuntimeError(

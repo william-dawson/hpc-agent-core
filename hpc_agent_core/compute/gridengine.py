@@ -37,6 +37,7 @@ same as a real job succeeding).
 from __future__ import annotations
 
 import re
+import shlex
 
 from hpc_agent_core.compute.base import SchedulerBackend, duration_to_hms, render_body, to_epoch
 from hpc_agent_core.middleware import run_command, write_remote_file
@@ -176,7 +177,8 @@ class GridEngineBackend(SchedulerBackend):
         remote_path = write_remote_file(f"{self._jobs_dir}/{spec.name}.sh", script_content)
 
         qsub = self._qbin("qsub")
-        output = run_command(f"chmod +x {remote_path!r} && {qsub} -terse {remote_path!r}")
+        quoted = shlex.quote(remote_path)
+        output = run_command(f"chmod +x {quoted} && {qsub} -terse {quoted}")
         job_id = output.strip().splitlines()[-1].strip() if output.strip() else ""
         if not job_id.isdigit():
             raise RuntimeError(f"qsub did not return a numeric job id; got: {output!r}")
@@ -309,7 +311,7 @@ class GridEngineBackend(SchedulerBackend):
         qacct = self._qbin("qacct")
         for jid in missing_ids:
             try:
-                acct_out = run_command(f"{qacct} -j {jid}")
+                acct_out = run_command(f"{qacct} -j {shlex.quote(jid)}")
                 records = self._parse_qacct_records(acct_out)
                 if records:
                     result.append(self._job_from_qacct(records[-1]))
@@ -361,7 +363,7 @@ class GridEngineBackend(SchedulerBackend):
         UNKNOWN + message if qdel fails, e.g. the job already finished)."""
         qdel = self._qbin("qdel")
         try:
-            run_command(f"{qdel} {job_id}")
+            run_command(f"{qdel} {shlex.quote(job_id)}")
         except RuntimeError as exc:
             return Job(id=job_id, status=JobStatus(state=JobState.UNKNOWN, message=str(exc), meta_data={"scheduler": "gridengine"}))
         return Job(id=job_id, status=JobStatus(state=JobState.CANCELED, message=f"qdel {job_id} succeeded", meta_data={"scheduler": "gridengine"}))
