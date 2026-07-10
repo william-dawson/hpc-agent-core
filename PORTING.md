@@ -152,7 +152,8 @@ your-machine-agent/                 # top-level repo
       hpc_server.py                      # §7 — the IRI-grouped tool surface
       docs_server.py                     # §7 — thin wrapper over hpc_agent_core.docs_server
       doctor.py                          # §7 — thin wrapper over hpc_agent_core.doctor
-      serving.py or entry points in pyproject.toml
+      # (no serving.py needed — each server's main() is exposed as a
+      #  console-script entry point in pyproject.toml; see §7's last part)
       data/
         <machine>_config.json              # static facts: partitions, storage, modules
         <machine>_guide.md                  # §2
@@ -388,6 +389,59 @@ function calling into `compute.py` or `hpc_agent_core.middleware`. Mark any
 tool with no IRI counterpart (like `run_command_on_cluster` above) as an
 explicit extension in your `IRI_CHECKLIST.md`.
 
+**Expose each server as a console-script entry point, then point `.mcp.json`
+at those scripts *run from your git remote*.** This is the part that makes
+the plugin installable by an end user who has never cloned your repo, and
+it is the step both of the first clean-room ports got wrong — don't skip it.
+
+In `server/pyproject.toml`, name the two servers (and the doctor) as
+entry points. Use the family convention: `<machine>-hpc-mcp`,
+`<machine>-docs-mcp`, `<machine>-doctor`:
+
+```toml
+[project.scripts]
+mymachine-hpc-mcp = "mymachine_mcp.hpc_server:main"
+mymachine-docs-mcp = "mymachine_mcp.docs_server:main"
+mymachine-doctor = "mymachine_mcp.doctor:main"
+```
+
+Then in `plugins/<machine>/.mcp.json`, launch each server with
+`uv tool run --from git+<your-remote>@main#subdirectory=server`, **not** a
+bare command name:
+
+```json
+{
+  "mcpServers": {
+    "mymachine-hpc": {
+      "command": "uv",
+      "args": ["tool", "run", "--quiet", "--from",
+               "git+https://github.com/<owner>/<repo>.git@main#subdirectory=server",
+               "mymachine-hpc-mcp"],
+      "env": {}
+    },
+    "mymachine-docs": {
+      "command": "uv",
+      "args": ["tool", "run", "--quiet", "--from",
+               "git+https://github.com/<owner>/<repo>.git@main#subdirectory=server",
+               "mymachine-docs-mcp"],
+      "env": {}
+    }
+  }
+}
+```
+
+Why not just `"command": "mymachine-hpc-mcp"`? A bare command name assumes
+the script is already on the user's `PATH` — which is only true on *your*
+dev machine after `pip install -e .`. A user installing the plugin from the
+marketplace has never installed your package, so the bare command fails with
+"command not found". The `uv tool run --from git+…` form makes `uv` fetch
+your repo (pinned to `@main`), build the `server/` subdirectory, and run the
+entry point in one step, with no prior install — that's what every shipped
+plugin in this family does, and what lets "install the plugin" actually
+work. (`uv tool run` also pulls `hpc-agent-core` and your other deps
+transitively, so the pinned range from §9 is what governs which core version
+the user gets.)
+
 ## 8. Build the docs index
 
 ```bash
@@ -412,8 +466,20 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 .venv/bin/python tests/smoke.py --job           # + submits a real tiny job
 ```
 
-**A passing `doctor` and passing read-only smoke test are not proof the
-port works.** Real precedent: a machine that looked fine on every check
+Make the read-only `smoke.py` actually exercise the cluster, not just tool
+registration. A useful read-only run should, over MCP stdio: list the tools
+on both servers, call `search_docs`/`list_doc_sections` (no SSH), **and make
+at least one live read-only scheduler round trip** — `get_resources`
+(`sinfo`) plus `get_job_statuses([])` (recent-jobs query) and a
+`run_command_on_cluster("hostname")`. Both early clean-room ports wrote a
+read-only path that only called `get_facility`, which reads bundled JSON and
+touches no SSH at all — so a green read-only run "passed" without ever
+proving the machine was reachable. `get_facility` proves nothing about
+connectivity; `get_resources` does. (These are all read-only, so they're
+safe to run every time, unlike `--job`.)
+
+**Even so, a passing `doctor` and passing read-only smoke test are not proof
+the port works.** Real precedent: a machine that looked fine on every check
 still had its job-status logic completely broken, because the check that
 would have caught it (an actual submitted job) was the one nobody ran.
 Submit at least one real job — ideally one requesting a GPU if the machine
