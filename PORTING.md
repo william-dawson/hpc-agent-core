@@ -612,6 +612,10 @@ the current version `X.Y.Z` is `hpc-agent-core>=X.Y,<X.(Y+1)`.
 
      ### Manual (any MCP-compatible client)
 
+     Both options below only register the MCP servers — copy
+     `plugins/<machine>/skills/` into wherever your client loads skills
+     from too (this varies by client, so don't go into depth here).
+
      #### Option A — Using Hatch!
 
      [Hatch!](https://github.com/CrackingShells/Hatch) registers MCP servers
