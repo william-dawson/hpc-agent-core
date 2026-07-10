@@ -96,6 +96,21 @@ def build_index(source: Path, out_dir: Path, embed: bool, page_url: str = "") ->
         emb_path.unlink(missing_ok=True)
         print("Skipped embeddings (BM25 keyword search only).")
         return
+    if not (config.embed_base_url() and config.embed_model()):
+        # Checked before embed_api_key(): a machine with no embedding
+        # endpoint configured at all (embed_base_url="" in configure()) can
+        # still see embed_api_key() resolve truthy via the shared
+        # RCCS_EMBED_API_KEY env fallback, which every machine's
+        # embed_api_key() honors regardless of whether *that* machine has
+        # an endpoint — checking the key alone would then try to embed
+        # against a blank URL and crash with httpx.UnsupportedProtocol
+        # (caught live: this exact path, on a machine with a blank
+        # embed_base_url, while RCCS_EMBED_API_KEY happened to be set).
+        emb_path.unlink(missing_ok=True)
+        print("No embedding endpoint configured for this machine — wrote a "
+              "BM25-only index (this is expected, not an error, for a "
+              "machine with no shared embedding infrastructure).")
+        return
     if not config.embed_api_key():
         emb_path.unlink(missing_ok=True)
         print("No embedding API key configured — wrote a BM25-only index "
