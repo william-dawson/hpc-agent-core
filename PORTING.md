@@ -6,19 +6,21 @@ jobs, manage files, and search documentation for a specific supercomputer.
 It assumes **no other context**: you do not need to have seen any existing
 machine repo to follow this. Read it in full before writing any code.
 
-**Don't copy this file into your new repo.** Earlier versions of this guide
-said to — but since every machine repo genuinely depends on `hpc-agent-core`
-as a package now, a copy is just a second place for this guide to go stale
-in (exactly the kind of drift this guide already warns against elsewhere:
-a hardcoded version number in an earlier revision of this file went stale
-within the same day it was written, and a copied `PORTING.md` would be the
-same mistake at a larger scale). Instead, put one line in your repo's
-`AGENTS.md`/`README.md` pointing at the canonical copy — e.g. "See
-[hpc-agent-core's `PORTING.md`](https://github.com/william-dawson/hpc-agent-core/blob/main/PORTING.md)
-for the general porting process this repo follows" — and keep only what's
-genuinely specific to your machine in your own repo (cluster facts,
-decisions made under uncertainty, a repo map). Do not edit `hpc-agent-core`
-itself — you have no write access to it (see §0).
+**Do not create a `PORTING.md` file in your new repo at all — not even a
+stub or a link file.** Earlier versions of this guide said to copy it
+verbatim, then later said to leave a one-line stub file behind instead;
+both were mistakes for the same reason: any file in your repo named
+`PORTING.md` is a second place this guide can appear to live, and it drifts
+(a hardcoded version number in an earlier revision of this file went stale
+within the same day it was written — a copy or a stub is that same failure
+mode at a smaller scale, just less bad). The canonical copy lives at exactly
+one URL, permanently:
+<https://github.com/william-dawson/hpc-agent-core/blob/main/PORTING.md>.
+Reference that URL directly from **`AGENTS.md`** (required — see §11) and
+optionally once from `README.md`; do not put it in a file of its own. Keep
+only what's genuinely specific to your machine in your own repo (cluster
+facts, decisions made under uncertainty, a repo map). Do not edit
+`hpc-agent-core` itself — you have no write access to it (see §0).
 
 ## 0. The mental model
 
@@ -524,12 +526,109 @@ the current version `X.Y.Z` is `hpc-agent-core>=X.Y,<X.(Y+1)`.
   language, referencing the tools from §7 and the facts from your guide.
   Machine-prefix the skill names so multiple plugins can be installed at
   once without collisions.
-- **README.md**: user-facing — what the machine is, how to configure
-  (`~/.hpc-agent/<machine>.json`, the common location — see §5), how to
-  install the plugin, how to verify (`doctor`).
+- **README.md**: user-facing, and short. It has an intro paragraph followed
+  by exactly four sections, in this order — **don't add others** (see the
+  "don't add" list below):
+
+  1. **A one-paragraph intro** — what the machine is, one line on what the
+     plugin does (submit/monitor jobs, manage files, search docs), and one
+     line naming this as a thin skin over `hpc-agent-core` with a link to
+     it.
+  2. **Configure** — the config file at `~/.hpc-agent/<machine>.json` (the
+     common location — see §5), the one or two keys it actually needs (at
+     minimum `ssh.host`; add `embedding.api_key` if docs search matters),
+     what each env var override is, and a one-line mention that your
+     `<machine>-configuring` skill walks through this interactively.
+  3. **Install** — this is the part both of the first ports got wrong by
+     inventing a dev-mode `pip install -e .` writeup instead: use this exact
+     shape, adjusting only the machine name, org/repo, and script names:
+
+     ```markdown
+     ## Install
+
+     ### Prerequisite: uv
+
+     The plugin starts its MCP servers with `uv tool run` from this
+     repository's `main` branch, so [`uv`](https://docs.astral.sh/uv/) must
+     be installed and on your `PATH` before Claude Code or Codex starts the
+     plugin:
+
+     ```bash
+     brew install uv        # or: curl -LsSf https://astral.sh/uv/install.sh | sh
+     ```
+
+     Restart Claude Code or Codex after installing uv so the plugin process
+     inherits the updated `PATH`.
+
+     ### Claude Code
+
+     ```
+     /plugin marketplace add <org>/<repo>
+     /plugin install <machine>@<machine>-marketplace
+     /reload-plugins
+     ```
+
+     ### Codex
+
+     ```
+     codex plugin marketplace add <org>/<repo>
+     ```
+
+     Then open `/plugins`, install `<machine>`, start a new thread, and run
+     `/<machine>-demo` to verify the connection end-to-end.
+
+     ### Manual (any MCP-compatible client)
+
+     Create or edit `.mcp.json` in your project root, pointing at the same
+     `uv tool run --from git+https://github.com/<org>/<repo>.git@main#subdirectory=server`
+     invocation your own `plugins/<machine>/.mcp.json` uses (see §7) for
+     both the `-hpc-mcp` and `-docs-mcp` entry points.
+     ```
+
+     No other install path belongs in the README — not a local
+     `pip install -e .`/`pipx install` writeup (that's for *you*, developing
+     the plugin, not for someone installing it; it belongs in Development,
+     below, not Install) and not a console-script table (the scripts are an
+     implementation detail behind the `.mcp.json` entries above; a user
+     never types their names directly).
+  4. **Verify** — one command:
+
+     ```bash
+     uv tool run --quiet --from git+https://github.com/<org>/<repo>.git@main#subdirectory=server <machine>-doctor
+     ```
+
+     plus a one-line note on what a passing/partial result looks like (e.g.
+     "all lines should read ✓ except possibly embedding, which falls back to
+     keyword search off the RIKEN network — not blocking").
+  5. **Development** (for contributors to *this* repo, not end users) — use
+     `uv run`, not a hand-rolled venv (your own `server/run.sh` already
+     auto-detects `uv`; keep the README consistent with it):
+
+     ```bash
+     cd server
+     uv run python -m <machine>_mcp.doctor
+     uv run python tests/smoke.py
+     uv run python tests/smoke.py --job
+     ```
+
+     plus the one-liner for rebuilding the docs index after editing the
+     guide: `uv run python -m hpc_agent_core.rag.ingest`.
+
+  **Do not add** a "What's here" repo-tree section, a "What the plugin can
+  do"/tool-list section, or a "<Machine> quick facts" cluster-summary
+  section. All three showed up in the first ports' READMEs and all three
+  are dead weight: the repo layout is self-evident from browsing GitHub, the
+  tool list is enumerable from `list_tools` and documented per-tool in
+  `hpc_server.py`'s docstrings, and cluster facts belong in exactly one
+  place — the guide (`data/<machine>_guide.md`) — not copied into a second
+  file where they will drift the next time the guide is corrected.
 - **AGENTS.md**: agent-facing — the design rules from this guide
   (no-write-access to core, clarity over cleverness, the §10 invariants),
-  the cluster facts from §1, and a repository map.
+  the cluster facts from §1, and a repository map. **Must open with a line
+  pointing at the canonical guide** — "Read
+  [hpc-agent-core's `PORTING.md`](https://github.com/william-dawson/hpc-agent-core/blob/main/PORTING.md)
+  before making changes here" or equivalent — since no `PORTING.md` file
+  exists in this repo (see the top of this guide).
 - **IRI_CHECKLIST.md**: which IRI Facility API endpoints you implemented,
   deferred, or extended beyond the spec, and why — this is genuinely
   machine-specific (an endpoint sensible on one machine may not apply to
