@@ -514,7 +514,15 @@ the current version `X.Y.Z` is `hpc-agent-core>=X.Y,<X.(Y+1)`.
 - **Show before you run.** Before `submit_job` or `run_command_on_cluster`
   actually executes something, show the user what's about to run (the
   JobSpec, or the exact command/script) and a brief explanation, unless
-  they've explicitly said to just run it.
+  they've explicitly said to just run it. **This applies only to those two
+  consequential tools — not to every tool call in a skill.** A real port's
+  `-demo` skill once wrote "explain each step to the user before running
+  it" as a blanket rule for its whole walkthrough (including read-only
+  steps like `get_facility`/`get_resources`), and an agent following that
+  skill read it as "produce the explanation, then stop" rather than
+  "narrate as you go" — the demo described itself instead of running. Don't
+  generalize this invariant beyond submit/run; see §11's demo-skill
+  guidance for the wording that avoids this.
 - **Never invent a documentation URL.** If `docs_cite_url` is blank (see
   §3), search results carry no URL — don't add one back in in a skill or
   tool description.
@@ -525,7 +533,32 @@ the current version `X.Y.Z` is `hpc-agent-core>=X.Y,<X.(Y+1)`.
   `-reference`, `-demo`): each documents one user-facing workflow in plain
   language, referencing the tools from §7 and the facts from your guide.
   Machine-prefix the skill names so multiple plugins can be installed at
-  once without collisions.
+  once without collisions. Give each skill's frontmatter `user-invocable: true`
+  so it's callable as a slash command.
+
+  **`-demo` specifically must be written so an agent actually executes it,
+  not just reads it back.** Use this exact pattern — imperative, numbered
+  steps, and "pause *after* each step," never "explain *before* running
+  it" (see §10's note on why that phrasing backfires):
+
+  ```markdown
+  Run each step in order — actually call the tools, don't just describe
+  the plan. Present results as a readable narrative, not raw JSON dumps.
+  Pause after each step and show the output before moving on.
+
+  ## Step 1 — <name>
+
+  Call `<tool>`. <what to show/point out>.
+
+  ## Step 2 — <name>
+  ...
+  ```
+
+  Every step should read as a direct command ("Call `get_resources`"), not
+  a description of what could happen. Only the step that actually submits
+  a job needs the show-before-you-run framing from §10, and even there,
+  phrase it as "tell the user you'll submit X, then call `submit_job`" —
+  an instruction to act, not a pause point.
 - **README.md**: user-facing, and short. It has an intro paragraph followed
   by exactly four sections, in this order — **don't add others** (see the
   "don't add" list below):
