@@ -69,6 +69,18 @@ def check_ssh(ok_token: str, scheduler_probe: str, scheduler_name: str) -> bool:
 
 
 def check_embedding() -> bool:
+    """Probe the embedding endpoint, or report a WARN if the machine has no
+    shared endpoint configured at all (not every machine has one — a
+    machine that never calls configure(embed_base_url=..., embed_model=...)
+    with real values is BM25-only by design, which is fine, not a failure).
+    A configured endpoint that merely lacks/rejects an API key still
+    attempts the connection and reports FAIL, since that's a real signal
+    (e.g. a 401) worth surfacing, unlike "no endpoint decided for this
+    machine" which isn't an error to fix.
+    """
+    if not (config.embed_base_url() and config.embed_model()):
+        print(f"{WARN} embedding: not configured for this machine; docs search uses BM25 keyword matching")
+        return True
     from hpc_agent_core.rag.embed import get_client
     client = get_client()
     try:
