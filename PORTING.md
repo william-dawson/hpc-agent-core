@@ -612,11 +612,45 @@ the current version `X.Y.Z` is `hpc-agent-core>=X.Y,<X.(Y+1)`.
 
      ### Manual (any MCP-compatible client)
 
+     #### Option A — Using Hatch!
+
+     [Hatch!](https://github.com/CrackingShells/Hatch) registers MCP servers
+     on any supported host from a single command. Install it once, then
+     configure both servers — replace `<host>` with your target platform
+     (`claude-code`, `codex`, `cursor`, `vscode`, `claude-desktop`, `kiro`,
+     `gemini`, `lmstudio`, or any other
+     [supported host](https://github.com/CrackingShells/Hatch#supported-mcp-hosts)):
+
+     ```bash
+     pip install hatch-xclam
+
+     hatch mcp configure <machine>-hpc --host <host> \
+       --command uv \
+       --args "tool run --quiet --from git+https://github.com/<org>/<repo>.git@main#subdirectory=server <machine>-hpc-mcp"
+
+     hatch mcp configure <machine>-docs --host <host> \
+       --command uv \
+       --args "tool run --quiet --from git+https://github.com/<org>/<repo>.git@main#subdirectory=server <machine>-docs-mcp"
+     ```
+
+     To replicate the same configuration to additional hosts:
+
+     ```bash
+     hatch mcp sync --from-host <host> --to-host cursor,vscode
+     ```
+
+     #### Option B — Edit `.mcp.json` directly
+
      Create or edit `.mcp.json` in your project root, pointing at the same
      `uv tool run --from git+https://github.com/<org>/<repo>.git@main#subdirectory=server`
      invocation your own `plugins/<machine>/.mcp.json` uses (see §7) for
      both the `-hpc-mcp` and `-docs-mcp` entry points.
      ```
+
+     Keep both options — three ports in a row have quietly dropped the Hatch
+     option while rewriting this section (it's easy to do since Option B
+     alone "looks complete"), even though it was already an established
+     family convention before hpc-agent-core existed. Don't drop it again.
 
      No other install path belongs in the README — not a local
      `pip install -e .`/`pipx install` writeup (that's for *you*, developing
