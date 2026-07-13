@@ -48,17 +48,21 @@ def check_config_file() -> bool:
 
 
 def check_ssh(ok_token: str, scheduler_probe: str, scheduler_name: str) -> bool:
-    from hpc_agent_core.middleware import run_command
+    from hpc_agent_core.middleware import is_local_host, run_command
     host = config.ssh_host()
+    # "ssh (host): connected" would be misleading when host is localhost/
+    # 127.* — remotemanager routes that case to a bare local shell with no
+    # ssh subprocess at all (see middleware.get_frontend()'s docstring).
+    label = f"local ({host})" if is_local_host(host) else f"ssh ({host})"
     try:
         output = run_command(f"echo {ok_token} && hostname")
     except Exception as e:
-        print(f"{FAIL} ssh ({host}): {e}")
+        print(f"{FAIL} {label}: {e}")
         return False
     if ok_token not in output:
-        print(f"{FAIL} ssh ({host}): unexpected response: {output[:200]}")
+        print(f"{FAIL} {label}: unexpected response: {output[:200]}")
         return False
-    print(f"{OK} ssh ({host}): connected to {output.strip().splitlines()[-1]}")
+    print(f"{OK} {label}: connected to {output.strip().splitlines()[-1]}")
 
     scheduler_out = run_command(scheduler_probe)
     if scheduler_out.strip().lower().startswith(scheduler_name.lower()):

@@ -217,6 +217,21 @@ implement this resolution yourself, and your skills/README should point
 users at the common `~/.hpc-agent/<slug>.json` location, not a per-machine
 dotdir.
 
+`ssh.host` also accepts `"localhost"` (or a `127.*` address) for running
+directly on the cluster's own front-end/login node with no SSH at all —
+remotemanager's `URL.is_local` already routes that case to a bare local
+shell, and `get_frontend()` is deliberately uncached specifically so a
+config file edit (e.g. switching to/from `"localhost"`) takes effect on
+the next tool call, not just after a full server restart. No middleware
+change is needed in your own repo for this to work. Your `<machine>-configuring`
+skill should offer `"localhost"` as an SSH-setup option and skip the usual
+`ssh -o BatchMode=yes` probe for it (there's nothing to probe). The routing
+mechanism itself is verified (a bare local shell exec with zero `ssh`
+subprocess involved, confirmed end to end against this package's own dev
+machine) — what's **not** verified is exercising it against a real cluster
+front-end with real scheduler binaries present. Confirm that specifically
+before telling users to rely on it for actual job submission.
+
 ## 6. Wire up `compute.py`
 
 Construct one of `hpc-agent-core`'s two ready-made backends with the
@@ -570,7 +585,9 @@ the current version `X.Y.Z` is `hpc-agent-core>=X.Y,<X.(Y+1)`.
   2. **Configure** — the config file at `~/.hpc-agent/<machine>.json` (the
      common location — see §5), the one or two keys it actually needs (at
      minimum `ssh.host`; add `embedding.api_key` if docs search matters),
-     what each env var override is, and a one-line mention that your
+     what each env var override is, a one-line mention that `ssh.host`
+     also accepts `"localhost"` for running directly on the machine's own
+     front-end with no SSH (see §5), and a one-line mention that your
      `<machine>-configuring` skill walks through this interactively.
   3. **Install** — this is the part both of the first ports got wrong by
      inventing a dev-mode `pip install -e .` writeup instead: use this exact

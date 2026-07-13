@@ -35,7 +35,6 @@ import contextlib
 import hashlib
 import shlex
 import sys
-from functools import lru_cache
 from pathlib import Path
 
 from remotemanager import Computer
@@ -44,6 +43,24 @@ from hpc_agent_core import config
 
 # Cap what a single call can pour into the MCP context.
 OUTPUT_LIMIT_BYTES = 200_000
+
+#: Hosts remotemanager's URL.is_local treats as local (no ssh at all, per
+#: URL.ssh returning ""). Kept here too so doctor.py and machine repos can
+#: label output correctly without importing remotemanager directly.
+LOCAL_HOSTS_PREFIX = "127."
+LOCAL_HOST = "localhost"
+
+
+def is_local_host(host: str) -> bool:
+    """True if host resolves to a purely local connection (no SSH at all).
+
+    Mirrors remotemanager.connection.url.URL.is_local's exact check
+    (host == "localhost" or host.startswith("127.")) without importing
+    URL directly — this is a plain string check, not a live connection
+    property, so duplicating the two-line condition is simpler than
+    constructing a Computer just to ask it.
+    """
+    return host == LOCAL_HOST or host.startswith(LOCAL_HOSTS_PREFIX)
 
 
 def norm_path(path: str) -> str:
@@ -65,9 +82,19 @@ def quote_path(path: str) -> str:
     return shlex.quote(norm_path(path))
 
 
-@lru_cache(maxsize=1)
 def get_frontend() -> Computer:
-    """The (cached) Computer targeting the machine's login node.
+    """The Computer targeting the machine's login node (or the local host,
+    if config.ssh_host() is "localhost"/"127.*" — remotemanager's
+    URL.is_local already routes that case to a bare local shell with no ssh
+    subprocess at all; no transport-layer change is needed here for it).
+
+    Deliberately NOT cached (it was, via @lru_cache, until this was found to
+    be pure staleness risk for no benefit — Computer.cmd() already does a
+    fresh SSH exec per call with no persistent connection state on the
+    object, so caching only meant a config file edit wasn't picked up until
+    the whole MCP server restarted). Reconstructing it is cheap: two config
+    reads plus a plain constructor call, negligible next to the network
+    round-trip callers make immediately after.
 
     Every remotemanager.Computer constructor option is supported here, not
     just the four (template/host/submitter/python) every machine happened

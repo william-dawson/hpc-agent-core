@@ -209,7 +209,26 @@ def _section(key: str) -> dict:
 
 
 def ssh_host() -> str:
-    """SSH destination for the machine's login node (alias or user@hostname)."""
+    """SSH destination for the machine's login node: a ~/.ssh/config alias,
+    a plain user@hostname, or "localhost" (or a 127.* address) for running
+    directly on the cluster's own front-end/login node with no SSH at all —
+    remotemanager's URL.is_local routes that case to a bare local shell
+    (see hpc_agent_core.middleware.get_frontend()'s docstring). Local mode
+    is meant for an agent session launched ON the cluster itself (e.g. an
+    interactive front-end session), not a user's personal laptop — pointing
+    it at the wrong machine just makes every scheduler-dependent tool call
+    fail immediately (no sbatch/sinfo locally), which is a safe failure
+    mode, not a silent one.
+
+    The routing mechanism itself IS verified: setting a machine's *_HOST env
+    var to "localhost" was confirmed end to end (run_command executing as a
+    bare local shell command with zero ssh subprocess involved, doctor's
+    check_ssh correctly labeling it "local" instead of "ssh") against this
+    package's own dev machine. What is NOT verified is exercising it against
+    a real cluster front-end with real scheduler binaries present (sinfo,
+    qstat, ...) — confirm that specifically before telling users to rely on
+    it for actual job submission.
+    """
     r = _reg()
     return (os.environ.get(f"{r.env_prefix}_HOST")
             or _section("ssh").get("host")
