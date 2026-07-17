@@ -53,7 +53,7 @@ from __future__ import annotations
 import shlex
 import time
 
-from hpc_agent_core.middleware import run_command, write_remote_file
+from hpc_agent_core.middleware import norm_path, run_command, write_remote_file
 from hpc_agent_core.models import Job, JobSpec, JobState, JobStatus, map_slurm_state
 from .base import SchedulerBackend, duration_to_hms, parse_exit_code, render_body, to_epoch
 
@@ -271,7 +271,12 @@ class SlurmBackend(SchedulerBackend):
         if attr.reservation_id:
             lines.append(f"#SBATCH --reservation={attr.reservation_id}")
         if spec.directory:
-            lines.append(f"#SBATCH --chdir={spec.directory}")
+            # Slurm's --chdir is not shell-evaluated, so a literal "~/foo"
+            # would create a directory named "~" instead of resolving to
+            # home. norm_path strips it the same way fs_* tool paths do
+            # (submission's CWD is already $HOME, so the relative form
+            # resolves correctly).
+            lines.append(f"#SBATCH --chdir={norm_path(spec.directory)}")
         if spec.stdin_path:
             lines.append(f"#SBATCH --input={spec.stdin_path}")
         if spec.stdout_path:

@@ -40,7 +40,7 @@ import re
 import shlex
 
 from hpc_agent_core.compute.base import SchedulerBackend, duration_to_hms, render_body, to_epoch
-from hpc_agent_core.middleware import run_command, write_remote_file
+from hpc_agent_core.middleware import norm_path, run_command, write_remote_file
 from hpc_agent_core.models import Job, JobSpec, JobState, JobStatus, map_ge_state
 
 
@@ -119,7 +119,9 @@ class GridEngineBackend(SchedulerBackend):
             lines.append(f"#$ -l hostname={host}")
 
         if spec.directory:
-            lines.append(f"#$ -wd {spec.directory}")
+            # Grid Engine's -wd is not shell-evaluated either — same fix as
+            # SlurmBackend's --chdir, see that comment.
+            lines.append(f"#$ -wd {norm_path(spec.directory)}")
         else:
             lines.append("#$ -cwd")
 
