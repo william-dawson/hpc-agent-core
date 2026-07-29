@@ -1,7 +1,7 @@
 """Shared CLI entry point for the MCP servers."""
 import argparse
 
-from mcp.server.mcpserver import MCPServer
+from hpc_agent_core.mcp_server import MCPServer
 
 
 def serve(mcp: MCPServer) -> None:

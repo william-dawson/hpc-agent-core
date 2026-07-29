@@ -66,6 +66,11 @@ for any machine repo's server code; nothing currently depends on it yet.
   remote docs site — see the module docstring for why).
 - `docs_server.py`, `doctor.py`, `serving.py` — generic MCP docs server,
   health checks, and CLI entry point.
+- `mcp_server.py` — the only file that imports the MCP SDK's server class.
+  Machine repos import `MCPServer` from here, never from `mcp` directly, and
+  don't declare `"mcp"` as their own dependency — so a future SDK rename
+  (like 2.0.0's `FastMCP` → `MCPServer`) is a one-file fix here instead of a
+  fix in every machine repo.
 
 ## What's deliberately not here yet
 

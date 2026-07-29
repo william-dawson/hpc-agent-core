@@ -17,7 +17,7 @@ constructs MCPServer(name), and calls build(mcp) below before serve(mcp).
 """
 from functools import lru_cache
 
-from mcp.server.mcpserver import MCPServer
+from hpc_agent_core.mcp_server import MCPServer
 
 from hpc_agent_core import config
 from hpc_agent_core.rag.store import DocsIndex

@@ -284,11 +284,17 @@ an unusual machine, not a sign something is missing from core.
 ## 7. Wire up the MCP servers
 
 **`docs_server.py`** and **`doctor.py`** are thin — the generic work already
-lives in `hpc-agent-core`:
+lives in `hpc-agent-core`. Always import `MCPServer` from
+`hpc_agent_core.mcp_server`, never from `mcp` directly, and don't add `"mcp"`
+to your own `pyproject.toml` — `hpc-agent-core` is the only package that
+depends on the MCP SDK. It renamed its own server class once already (2.0.0,
+`FastMCP` → `MCPServer`, no deprecation window); routing every machine repo
+through one re-export means a future rename is a one-file fix in core
+instead of a fix in every machine repo:
 
 ```python
 # server/<machine>_mcp/docs_server.py
-from mcp.server.mcpserver import MCPServer
+from hpc_agent_core.mcp_server import MCPServer
 from hpc_agent_core.docs_server import build
 from hpc_agent_core.serving import serve
 from mymachine_mcp import config  # noqa: F401 -- registers via configure()
@@ -329,7 +335,7 @@ and `hpc_agent_core.middleware`:
 # fs_* set: fs_ls, fs_stat, fs_view, fs_head, fs_tail, fs_mkdir, fs_upload,
 # fs_download, fs_checksum, fs_cp, fs_mv, fs_chmod, fs_chown, fs_symlink,
 # fs_compress, fs_extract — each a one-line call into hpc_agent_core.middleware)
-from mcp.server.mcpserver import MCPServer
+from hpc_agent_core.mcp_server import MCPServer
 from hpc_agent_core.middleware import run_command, quote_path
 from hpc_agent_core.models import Job, JobSpec
 from hpc_agent_core.serving import serve
