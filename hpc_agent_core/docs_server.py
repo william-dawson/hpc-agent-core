@@ -13,11 +13,11 @@ URL back in here without checking config.docs_cite_url() first.
 
 Each machine repo provides a thin entry point (e.g. <machine>_mcp/docs_server.py)
 that imports its own config module first (registering machine settings),
-constructs FastMCP(name), and calls build(mcp) below before serve(mcp).
+constructs MCPServer(name), and calls build(mcp) below before serve(mcp).
 """
 from functools import lru_cache
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from hpc_agent_core import config
 from hpc_agent_core.rag.store import DocsIndex
@@ -35,8 +35,8 @@ def _format(result: dict) -> str:
     return header + f"\n{result['text']}"
 
 
-def build(mcp: FastMCP) -> FastMCP:
-    """Register the docs-search tools on an existing FastMCP instance."""
+def build(mcp: MCPServer) -> MCPServer:
+    """Register the docs-search tools on an existing MCPServer instance."""
 
     @mcp.tool()
     def search_docs(query: str, top_k: int = 4) -> str:

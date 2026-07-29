@@ -64,7 +64,7 @@ for any machine repo's server code; nothing currently depends on it yet.
 - `rag/` — embedding client, BM25 + vector docs index, and an ingest
   pipeline that only ever chunks a bundled local guide (never clones a
   remote docs site — see the module docstring for why).
-- `docs_server.py`, `doctor.py`, `serving.py` — generic FastMCP docs server,
+- `docs_server.py`, `doctor.py`, `serving.py` — generic MCP docs server,
   health checks, and CLI entry point.
 
 ## What's deliberately not here yet

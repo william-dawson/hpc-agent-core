@@ -288,12 +288,12 @@ lives in `hpc-agent-core`:
 
 ```python
 # server/<machine>_mcp/docs_server.py
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from hpc_agent_core.docs_server import build
 from hpc_agent_core.serving import serve
 from mymachine_mcp import config  # noqa: F401 -- registers via configure()
 
-mcp = FastMCP("mymachine-docs")
+mcp = MCPServer("mymachine-docs")
 build(mcp)
 
 def main():
@@ -329,13 +329,13 @@ and `hpc_agent_core.middleware`:
 # fs_* set: fs_ls, fs_stat, fs_view, fs_head, fs_tail, fs_mkdir, fs_upload,
 # fs_download, fs_checksum, fs_cp, fs_mv, fs_chmod, fs_chown, fs_symlink,
 # fs_compress, fs_extract — each a one-line call into hpc_agent_core.middleware)
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from hpc_agent_core.middleware import run_command, quote_path
 from hpc_agent_core.models import Job, JobSpec
 from hpc_agent_core.serving import serve
 from mymachine_mcp import compute, config
 
-mcp = FastMCP("mymachine-hpc")
+mcp = MCPServer("mymachine-hpc")
 
 
 @mcp.tool()

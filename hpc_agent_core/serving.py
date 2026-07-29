@@ -1,10 +1,10 @@
 """Shared CLI entry point for the MCP servers."""
 import argparse
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 
-def serve(mcp: FastMCP) -> None:
+def serve(mcp: MCPServer) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--transport", default="stdio",
                         choices=["stdio", "streamable-http"])
