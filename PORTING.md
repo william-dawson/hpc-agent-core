@@ -485,21 +485,76 @@ would have caught it.
 cd server
 python3 -m venv .venv && .venv/bin/pip install -e .
 .venv/bin/python -m mymachine_mcp.doctor        # config, ssh+scheduler, guide bundled, docs index, embedding
-.venv/bin/python tests/smoke.py                 # read-only MCP stdio test
+.venv/bin/python tests/smoke.py --offline       # offline tier: no SSH, no live cluster needed
+.venv/bin/python tests/smoke.py                 # + the read-only tier against the live machine
 .venv/bin/python tests/smoke.py --job           # + submits a real tiny job
 ```
 
-Make the read-only `smoke.py` actually exercise the cluster, not just tool
-registration. A useful read-only run should, over MCP stdio: list the tools
-on both servers, call `search_docs`/`list_doc_sections` (no SSH), **and make
-at least one live read-only scheduler round trip** — `get_resources`
-(`sinfo`) plus `get_job_statuses([])` (recent-jobs query) and a
-`run_command_on_cluster("hostname")`. Both early clean-room ports wrote a
-read-only path that only called `get_facility`, which reads bundled JSON and
-touches no SSH at all — so a green read-only run "passed" without ever
-proving the machine was reachable. `get_facility` proves nothing about
-connectivity; `get_resources` does. (These are all read-only, so they're
-safe to run every time, unlike `--job`.)
+### Write `smoke.py` as three tiers: offline, read-only, job
+
+`hpc_agent_core.testing` provides the machine-agnostic plumbing —
+`call()`/`payload()` (read a tool result correctly: raise on `is_error`,
+prefer `structured_content`, unwrap the `{"result": ...}` wire convention),
+`job_name()` (a run-scoped name so concurrent runs never collide), and
+`Summary`/`run_tier()` (pass/fail/skip tracking with one final summary
+line, skips named rather than folded silently into "passed"). Import these
+rather than reimplementing them — an earlier `smoke.py` read every result
+through raw text-truthiness, which quietly conflated "legitimately empty
+result" with "call failed," and a stale-dependency bug (a repo pinned to a
+range that no longer guaranteed the module it imported actually existed)
+went undetected because nothing ever exercised import/registration without
+also needing live SSH. The offline tier below exists specifically to catch
+that class of bug without needing a cluster at all.
+
+Everything else — which tools to check for, what a live call should
+assert, the job spec shape — stays local to your `smoke.py`, including the
+tier functions themselves and the top-level orchestration deciding what to
+skip when. That orchestration is short (~15 lines) and differs enough
+machine to machine (a Grid Engine machine's tiers look different from a
+dual-scheduler one) that centralizing it would cost more in awkward
+parameterization than it saves in duplication — unlike `call`/`payload`,
+which are byte-for-byte identical everywhere. A minimal shape:
+
+```python
+# server/<machine>_mcp/tests/smoke.py (excerpt)
+from hpc_agent_core.testing import Summary, call, confirm_billing_gate, job_name, payload, run_tier
+
+async def check_hpc_server_offline(session) -> None:
+    tools = await session.list_tools()
+    # assert your required tool names are present
+    submit_job_tool = next(t for t in tools.tools if t.name == "submit_job")
+    # assert submit_job_tool.input_schema["$defs"] has the shapes you expect
+    facility = await call(session, "get_facility", {})
+    assert str(payload(facility)).strip()
+
+async def check_hpc_server_live(session) -> None:
+    resources = await call(session, "get_resources", {})
+    # assert something live-only about the result — see the caution below
+
+# ... _offline_tier() / _read_only_tier() / _job_tier() wrap these in a
+# stdio ClientSession each; _run() calls run_tier() for each, skipping
+# read-only/job per the rules: --offline given, or an earlier tier failed.
+```
+
+Make the read-only tier actually exercise the cluster, not just tool
+registration. It should, over MCP stdio: list the tools on both servers,
+call `search_docs`/`list_doc_sections` (no SSH — these belong in the
+offline tier), **and make at least one live read-only scheduler round
+trip** — `get_resources` (`sinfo`) plus `get_job_statuses([])`
+(recent-jobs query) and a `run_command_on_cluster("hostname")`. Both early
+clean-room ports wrote a read-only path that only called `get_facility`,
+which reads bundled JSON and touches no SSH at all — so a green read-only
+run "passed" without ever proving the machine was reachable.
+`get_facility` proves nothing about connectivity; `get_resources` does.
+(These are all read-only, so they're safe to run every time, unlike
+`--job`.)
+
+If your machine's compute is billed with no usage cap (or any other
+consequence you don't want an accidental `--job` to trigger),
+`confirm_billing_gate(args, reason=...)` returns a refusal message when
+`--job` was given without a matching `--confirm-billing` flag — check it
+before constructing any client, so refusal never touches SSH. This is
+optional; a machine with no such concern just doesn't call it.
 
 **Even so, a passing `doctor` and passing read-only smoke test are not proof
 the port works.** Real precedent: a machine that looked fine on every check
