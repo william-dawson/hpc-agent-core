@@ -72,6 +72,38 @@ def check_ssh(ok_token: str, scheduler_probe: str, scheduler_name: str) -> bool:
     return False
 
 
+def check_commands_on_path(names, label: str) -> bool:
+    """Verify each of `names` resolves via `command -v` on the cluster.
+
+    For schedulers with no single --version-style probe command —
+    check_ssh()'s scheduler_probe/scheduler_name assumes one command whose
+    output starts with the scheduler's name (fine for Slurm's
+    `sinfo --version`), which doesn't fit a scheduler that only offers
+    several must-exist commands and no version flag at all (PJM's
+    pjsub/pjstat/pjdel/pjalter, Bridge's ccc_msub/ccc_mprun/ccc_mpp/
+    ccc_mpinfo). Call this alongside your own SSH connectivity check
+    (a few lines — see check_ssh()'s source for the echo/hostname pattern)
+    rather than through check_ssh() itself.
+
+    Checked one at a time: `command -v` exits non-zero for a single missing
+    command, and middleware.run_command always raises on non-zero exit — a
+    single combined "command -v a b c" would raise (and lose which ones
+    were actually found) the moment any one is missing.
+    """
+    from hpc_agent_core.middleware import run_command
+    missing = []
+    for cmd in sorted(names):
+        try:
+            run_command(f"command -v {cmd}")
+        except RuntimeError:
+            missing.append(cmd)
+    if missing:
+        print(f"{FAIL} {label}: missing {', '.join(missing)}")
+        return False
+    print(f"{OK} {label}: {', '.join(sorted(names))}")
+    return True
+
+
 def check_embedding() -> bool:
     """Probe the embedding endpoint, or report a WARN if the machine has no
     shared endpoint configured at all (not every machine has one — a

@@ -324,6 +324,15 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
+If your scheduler has no single --version-style command whose output
+identifies it by name (PJM and Bridge don't; several of their commands need
+to simply exist instead), don't force one — write your own `main()` that
+composes a small local SSH-connectivity check with
+`hpc_agent_core.doctor.check_commands_on_path(names, label)` instead of
+`check_ssh()`. See Irene's or Fugaku's `doctor.py` for the pattern; this is
+exactly the "write a local replacement for the one check_* that doesn't
+fit" case §7's docstring already describes.
+
 **`hpc_server.py`** is the one piece `hpc-agent-core` doesn't provide a
 generic version of yet — you write the actual MCP tool surface, grouped
 around the IRI Facility API (submit/status/cancel, filesystem operations,
