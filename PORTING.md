@@ -565,13 +565,19 @@ has any — and confirm you can see it queue, run, and complete through the
 agent before considering this port finished.
 
 Add `hpc-agent-core` as a dependency in your `server/pyproject.toml`, pinned
-to a compatible range rather than left unpinned — a future core release
-could otherwise change what your users install with no warning. Check
-`pip index versions hpc-agent-core` (or the PyPI project page) for
-whatever is actually current *right now* and pin against that — don't
-hardcode a version number from this guide, since it will go stale the
-moment a new `hpc-agent-core` ships. A reasonable pin shape once you know
-the current version `X.Y.Z` is `hpc-agent-core>=X.Y,<X.(Y+1)`.
+to the **exact** version you actually tested against —
+`hpc-agent-core==X.Y.Z` — not a range and not left unpinned. A range like
+`>=X.Y,<X.(Y+1)` still lets a routine core release (even an additive one,
+like a new module your repo doesn't use) change what a fresh install
+resolves to without you ever deciding that; an exact pin means nothing
+changes for your users until you bump it yourself, on purpose, after
+verifying against the new version. Check `pip index versions
+hpc-agent-core` (or the PyPI project page) for whatever is actually current
+*right now* — don't hardcode a version number from this guide, since it
+will go stale the moment a new `hpc-agent-core` ships. When you do bump the
+pin later, treat it like any other dependency upgrade: verify your own
+`tests/smoke.py` (see §9) against the new version before committing to it,
+even if the core changelog claims the release is backward compatible.
 
 ## 10. Invariants that must hold, no exceptions
 
