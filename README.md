@@ -1,76 +1,48 @@
 # hpc-agent-core
 
-Shared runtime for the HPC MCP agent family — the Claude Code / Codex
-plugins that let an agent submit and monitor Slurm/Grid Engine jobs, manage
-files, and search documentation on a supercomputer (Rikyu, HOKUSAI
-BigWaterfall2, Octopus, R-CCS Cloud, TSUBAME4, and others).
+Shared runtime behind the RIKEN family of HPC agent plugins — Claude Code /
+Codex plugins that let an agent submit and monitor jobs, manage files, and
+search documentation on a supercomputer over SSH.
 
-Each of those plugins used to be a full copy-pasted fork of the same
-template. This package extracts the parts that were already generic in
-practice — SSH middleware, PSI/J-style job models, scheduler backends, the
-docs RAG pipeline, health checks (`doctor`), and the MCP serving glue — so a
-machine repo becomes a thin "skin": its own `<machine>_config.json`, a
-hand-written guide, skills, and packaging, depending on this package for
-everything else.
+Used by:
 
-See [`PLAN.md`](../PLAN.md) in the `merge_computers` workspace for the full
-design rationale and migration plan. This repo implements that plan's Phase
-1 (extract the generic modules) — it is **not yet** a drop-in replacement
-for any machine repo's server code; nothing currently depends on it yet.
+- [Rikyu-Agent](https://github.com/RIKEN-RCCS/Rikyu-Agent) — Rikyu (GB200, Slurm)
+- [Hokusai-Agent](https://github.com/RIKEN-RCCS/Hokusai-Agent) — HOKUSAI BigWaterfall2 (Slurm)
+- [RCCS-CloudAgent](https://github.com/RIKEN-RCCS/RCCS-CloudAgent) — R-CCS Cloud (Slurm, heterogeneous hardware)
+- and several other machine repos — see [`PORTING.md`](PORTING.md) for the full list and how they're built
 
-## What's here 
+## Building a new agent for a new cluster? Read `PORTING.md`.
 
-- `config.py` — generic env/file/default settings resolution. A machine's
-  own `config.py` calls `hpc_agent_core.config.configure(...)` once to
-  register its SSH default, embedding endpoint, docs source, and (optionally)
-  any `remotemanager.Computer` option it needs to differ from the shared
-  defaults (`computer_defaults={...}` — see `COMPUTER_OPTION_NAMES` for the
-  full supported set: shell, timeout, keyfile, landing_dir, transport, ...).
-  A machine sets these once in its own repo; the end user never has to.
-- `middleware.py` — the SSH execution layer (base64 payloads, login shell,
-  clean error surfacing). Never touches config or the network above module
-  scope — the MCP server must never fail to start just because config is
-  missing (see PORTING.md's invariant in every machine repo).
-- `models.py` — PSI/J-style `JobSpec`/`ResourceSpec`/`JobAttributes`/`Job`/
-  `JobState`, with no per-machine defaults baked in. Also `Scheduler` (an
-  optional hint field for a machine that composes more than one
-  `SchedulerBackend`) and `map_ge_state` for Grid Engine.
-- `compute/base.py` — the `SchedulerBackend` ABC and scheduler-neutral
-  script-body rendering (env vars, container wrapping, launcher prefix).
-- `compute/slurm.py` — a config-driven Slurm backend: `has_accounting`
-  (sacct vs. squeue+scontrol), `gpu_request_style` (`"gpus_total"` vs.
-  `"gres"`) and the *independent* `nodes_always_explicit` (whether Slurm
-  derives node count from the GPU count, or `--nodes` is always emitted —
-  these two don't always move together, see `PHASE4_AUDIT.md` §1.1),
-  `no_gpu_flag_prefixes` (partitions needing no GPU flag at all, e.g. a
-  unified CPU+GPU superchip), and `gpu_vendor_map` (container GPU flag by
-  partition prefix). Verified against Rikyu's, Octopus's, *and*
-  RCCS-Cloud's actual rendered scripts. The `has_accounting=False` path
-  (Banyan/Dgx1-style) is implemented from the porting knowledge-transfer
-  reports and passes a mocked end-to-end test, but **is not yet verified
-  against a real no-accounting cluster** — see the module docstring before
-  trusting it on a live machine. Also provides `get_live_resources()`/
-  `get_drained_nodes()` (live per-partition occupancy via `sinfo`) — a
-  machine's `get_resources` tool should call this rather than returning
-  static config data, a real gap the first clean-room port using this guide
-  found in practice.
-- `compute/gridengine.py` — a Grid Engine backend (qsub/qstat/qacct/qdel),
-  promoted from shinobulab-cell-cluster-mcp (the only GE machine so far) and
-  verified to reproduce its exact rendered scripts. `host_pins`/
-  `queue_aliases`/`default_queue` generalize its host-pinning quirk into
-  config, since it's a plausible shape for other small GE clusters, not a
-  one-off. Live-tested as part of shinobulab-cell-cluster-mcp; **not yet
-  re-verified from this promoted copy against a real cluster**.
-- `rag/` — embedding client, BM25 + vector docs index, and an ingest
-  pipeline that only ever chunks a bundled local guide (never clones a
-  remote docs site — see the module docstring for why).
-- `docs_server.py`, `doctor.py`, `serving.py` — generic MCP docs server,
-  health checks, and CLI entry point.
-- `mcp_server.py` — the only file that imports the MCP SDK's server class.
-  Machine repos import `MCPServer` from here, never from `mcp` directly, and
-  don't declare `"mcp"` as their own dependency — so a future SDK rename
-  (like 2.0.0's `FastMCP` → `MCPServer`) is a one-file fix here instead of a
-  fix in every machine repo.
+**[`PORTING.md`](PORTING.md) is the complete porting guide** — what facts to
+gather about a machine, how to wire up `config.py`/`compute.py`, what the MCP
+tool surface should look like, and how to validate a port before calling it
+done. If you're an agent (or a person) about to build a new machine repo on
+top of this package, start there, not here.
+
+## What's here
+
+- `config.py` — settings resolution (env var > config file > default).
+- `middleware.py` — the SSH execution layer; the only thing that talks to the
+  cluster.
+- `models.py` — PSI/J-style job models (`JobSpec`, `ResourceSpec`, `Job`, ...).
+- `compute/slurm.py`, `compute/gridengine.py` — config-driven scheduler
+  backends (script rendering, submit/status/cancel).
+- `rag/` — the docs-search pipeline: BM25 keyword search, with optional
+  vector embeddings, over a machine's bundled guide.
+- `docs_server.py`, `doctor.py`, `serving.py`, `mcp_server.py` — the generic
+  MCP plumbing. A machine repo mostly just supplies its own facts, guide, and
+  tool surface on top of these.
+
+## Tool surface: the IRI Facility API
+
+Each machine's MCP tool surface is meant to mirror the [IRI Facility
+API](https://api.alcf.anl.gov/openapi.json) (the DOE standard this family
+targets — not vendored here; fetch it fresh when checking coverage). See
+[`IRI_CHECKLIST.md`](IRI_CHECKLIST.md) for how that spec's capability groups
+map onto what this package provides versus what a machine repo still has to
+write itself. Coverage *verdicts* (implemented/deferred/why) are
+machine-specific and live in each machine repo's own `IRI_CHECKLIST.md`, not
+here.
 
 ## Development
 
@@ -78,6 +50,6 @@ for any machine repo's server code; nothing currently depends on it yet.
 python3 -m venv .venv && .venv/bin/pip install -e .
 ```
 
-No machine repo depends on this yet, so there isn't a meaningful smoke test
-to run standalone — validate changes against a machine repo once one is
-repointed here.
+No machine repo depends on an unreleased local copy of this package, so
+there isn't a meaningful smoke test to run standalone — validate changes
+against a real machine repo (`tests/smoke.py`) before releasing.

@@ -726,4 +726,9 @@ the current version `X.Y.Z` is `hpc-agent-core>=X.Y,<X.(Y+1)`.
 - **IRI_CHECKLIST.md**: which IRI Facility API endpoints you implemented,
   deferred, or extended beyond the spec, and why — this is genuinely
   machine-specific (an endpoint sensible on one machine may not apply to
-  another) and does not move into `hpc-agent-core`.
+  another) and does not move into `hpc-agent-core`. See
+  [`hpc-agent-core`'s own `IRI_CHECKLIST.md`](https://github.com/william-dawson/hpc-agent-core/blob/main/IRI_CHECKLIST.md)
+  first — it maps each IRI capability group onto the primitive this package
+  already gives you (`SchedulerBackend.submit()`, `middleware.run_command`,
+  ...), so your own checklist only needs to record the machine-specific
+  verdict, not rediscover what's already handled.
