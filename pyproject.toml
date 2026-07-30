@@ -4,17 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hpc-agent-core"
-version = "0.4.8"
+version = "0.4.9"
 description = "Shared runtime for the HPC MCP agent family: SSH middleware, PSI/J-style job models, scheduler backends, docs RAG, doctor, and serving, reused across per-machine plugins (Rikyu, HOKUSAI, Octopus, ...)."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     # mcp 2.0.0 (2026-07-17) renamed mcp.server.fastmcp.FastMCP to
     # mcp.server.mcpserver.MCPServer with no deprecation window, breaking
-    # every consumer overnight since this was previously unpinned. Migrated
-    # to MCPServer and pinning forward rather than capping at <2.0, so we
-    # stay on the version we've actually tested against.
-    "mcp>=2.0,<3.0",
+    # every consumer overnight since this was previously unpinned. Pinned
+    # exactly, not to a range — a range (even >=2.0,<3.0) still lets a
+    # routine mcp release change what every machine repo's fresh install
+    # resolves to, with no explicit decision on our part; this is the
+    # actual dependency that caused the incident, so it gets the strictest
+    # pin in this file. Bump deliberately, after testing against the new
+    # version, not by widening a ceiling.
+    "mcp==2.0.0",
     "remotemanager",
     "httpx",
     "numpy",
