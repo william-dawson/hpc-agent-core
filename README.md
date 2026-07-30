@@ -18,7 +18,7 @@ design rationale and migration plan. This repo implements that plan's Phase
 1 (extract the generic modules) — it is **not yet** a drop-in replacement
 for any machine repo's server code; nothing currently depends on it yet.
 
-## What's here (Phase 1)
+## What's here 
 
 - `config.py` — generic env/file/default settings resolution. A machine's
   own `config.py` calls `hpc_agent_core.config.configure(...)` once to
@@ -71,15 +71,6 @@ for any machine repo's server code; nothing currently depends on it yet.
   don't declare `"mcp"` as their own dependency — so a future SDK rename
   (like 2.0.0's `FastMCP` → `MCPServer`) is a one-file fix here instead of a
   fix in every machine repo.
-
-## What's deliberately not here yet
-
-- `hpc_server.py` (the IRI-grouped Slurm/filesystem tool surface) and a
-  `machine_profile.py` that turns `<machine>_config.json` into config-driven
-  scheduler dispatch — a machine currently wires a `SlurmBackend`/
-  `GridEngineBackend` by hand in its own `compute.py`; that's a deliberate
-  choice (PLAN.md §2a/§2b), not a placeholder for a missing feature.
-- Repointing any machine repo at this package as a dependency.
 
 ## Development
 
