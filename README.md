@@ -53,3 +53,7 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 No machine repo depends on an unreleased local copy of this package, so
 there isn't a meaningful smoke test to run standalone — validate changes
 against a real machine repo (`tests/smoke.py`) before releasing.
+
+## License
+
+AGPL-3.0-or-later — see [LICENSE](LICENSE).
