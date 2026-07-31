@@ -343,7 +343,9 @@ and `hpc_agent_core.middleware`:
 # server/<machine>_mcp/hpc_server.py (excerpt — extend with the full
 # fs_* set: fs_ls, fs_stat, fs_view, fs_head, fs_tail, fs_mkdir, fs_upload,
 # fs_download, fs_checksum, fs_cp, fs_mv, fs_chmod, fs_chown, fs_symlink,
-# fs_compress, fs_extract — each a one-line call into hpc_agent_core.middleware)
+# fs_compress, fs_extract — each a one-line call into hpc_agent_core.middleware.
+# fs_grep/fs_glob (see below) are optional — add them if your users would
+# want to search cluster-side files without a full download first.)
 from hpc_agent_core.mcp_server import MCPServer
 from hpc_agent_core.middleware import run_command, quote_path
 from hpc_agent_core.models import Job, JobSpec
@@ -420,6 +422,48 @@ Group the rest of your tools (`get_resources`, `get_resource`,
 function calling into `compute.py` or `hpc_agent_core.middleware`. Mark any
 tool with no IRI counterpart (like `run_command_on_cluster` above) as an
 explicit extension in your `IRI_CHECKLIST.md`.
+
+### Optional: `fs_grep` / `fs_glob` — remote search, without a download first
+
+`hpc_agent_core.middleware.grep_files()`/`glob_files()` are remote
+analogues of a local Grep/Glob tool — "find where this string appears" or
+"find files matching this pattern" on the cluster, without a full
+`fs_download` round trip first. Wiring them up is the same one-line-wrapper
+shape as any other `fs_*` tool:
+
+```python
+@mcp.tool()
+def fs_grep(pattern: str, path: str = ".", glob: str | None = None,
+            case_insensitive: bool = False) -> str:
+    """Search file contents on the cluster recursively for a regex — remote
+    equivalent of a local Grep. Skips binary files and common VCS/dependency
+    directories. Returns "path:line:text" per match; empty string means no
+    matches (not an error). (Extension — no IRI counterpart.)
+    """
+    return middleware.grep_files(pattern, path, glob=glob, case_insensitive=case_insensitive)
+
+
+@mcp.tool()
+def fs_glob(pattern: str, path: str = ".") -> str:
+    """Find files under `path` matching a glob pattern (** for recursive) —
+    remote equivalent of a local Glob. Empty string means no matches.
+    (Extension — no IRI counterpart.)
+    """
+    return middleware.glob_files(pattern, path)
+```
+
+Two things worth knowing before you add these, not because the wrapper
+hides anything, but because they're easy to get wrong if you reimplement
+them yourself: `grep_files` treats "no matches" (grep's exit 1) as a normal
+empty result, not an error — only a real failure (bad regex, unreadable
+path) raises. And `glob_files`'s pattern can't be `shlex.quote()`'d the way
+every other path argument in this family is — quoting it would suppress
+the shell's own glob expansion, which is the whole point — so it's checked
+against a character allowlist instead, rejecting anything that isn't
+legitimate glob syntax before it ever reaches a remote shell.
+
+Optional, not required — a machine repo opts in by adding these two tools
+(or skips them entirely) independent of everything else in this guide.
 
 **Expose each server as a console-script entry point, then point `.mcp.json`
 at those scripts *run from your git remote*.** This is the part that makes

@@ -33,6 +33,7 @@ hook — see PLAN.md §2a/§2b.
 import base64
 import contextlib
 import hashlib
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -144,6 +145,82 @@ def run_command(cmd: str) -> str:
         output = (output[:OUTPUT_LIMIT_BYTES]
                   + f"\n[output truncated at {OUTPUT_LIMIT_BYTES} bytes]")
     return output
+
+
+#: Directories grep_files skips by default — VCS metadata and the usual
+#: dependency/venv/build dirs, mirroring what a local Grep tool excludes.
+_GREP_DEFAULT_EXCLUDES = [".git", ".svn", ".hg", "node_modules", "__pycache__",
+                          ".venv", "venv", ".mypy_cache", ".pytest_cache"]
+
+#: A glob pattern is embedded in the remote shell command unquoted (it must
+#: undergo real glob expansion, so it can't be shlex.quote()'d like a normal
+#: argument) — so it's validated against this allowlist first instead.
+#: Deliberately excludes shell metacharacters (;|&`$(){}<> etc. beyond the
+#: brace-expansion {,} pair) that would otherwise let a pattern smuggle in
+#: a second command.
+_GLOB_SAFE_RE = re.compile(r"^[A-Za-z0-9_./*?\[\]{},!+@-]+$")
+
+
+def grep_files(pattern: str, path: str = ".", *, glob: str | None = None,
+                case_insensitive: bool = False, max_results: int = 200) -> str:
+    """Search file contents on the cluster, recursively, for a regex —
+    remote analogue of a local Grep tool. Returns grep-style
+    "path:line:text" output, one match per line, capped at max_results
+    (truncated with a marker if there are more).
+
+    Binary files and common VCS/dependency directories are skipped by
+    default (see _GREP_DEFAULT_EXCLUDES). `glob` filters which filenames
+    are searched (e.g. "*.py"); `pattern` is a POSIX extended-ish regex,
+    exactly what `grep -rn` accepts.
+
+    `pattern` is passed through shlex.quote — unlike glob_files's pattern,
+    it never needs to be interpreted by the shell itself, only by grep, so
+    it can be safely quoted as an opaque argument with no character
+    restriction.
+    """
+    exclude_flags = " ".join(f"--exclude-dir={shlex.quote(d)}" for d in _GREP_DEFAULT_EXCLUDES)
+    include_flag = f"--include={shlex.quote(glob)}" if glob else ""
+    ci_flag = "-i" if case_insensitive else ""
+    cmd = (
+        f"grep -rnI {exclude_flags} {include_flag} {ci_flag} "
+        f"-- {shlex.quote(pattern)} {quote_path(path)}; "
+        # grep exits 1 for "no matches" — a normal, non-error outcome here,
+        # not something run_command should raise on. Exit 2+ is a real
+        # error (bad regex, unreadable path, ...) and should still raise.
+        "ec=$?; [ $ec -le 1 ] && exit 0; exit $ec"
+    )
+    output = run_command(cmd)
+    lines = output.splitlines()
+    if len(lines) > max_results:
+        lines = lines[:max_results] + [f"[truncated at {max_results} results]"]
+    return "\n".join(lines)
+
+
+def glob_files(pattern: str, path: str = ".") -> str:
+    """Find files under `path` matching a shell glob pattern — remote
+    analogue of a local Glob tool. Supports `**` for recursive matching
+    (bash's globstar) and standard wildcards (`*`, `?`, `[...]`, `{...}`).
+    Returns one path per line, relative to `path`, sorted; empty string if
+    nothing matches (not an error).
+
+    `pattern` must pass _GLOB_SAFE_RE — it's embedded in the remote shell
+    command so the shell's own glob engine can expand it, which rules out
+    shlex.quote() (that would suppress expansion entirely, matching the
+    pattern as a literal filename instead). The allowlist keeps this to
+    genuine glob syntax, rejecting anything that could smuggle in a second
+    shell command.
+    """
+    if not _GLOB_SAFE_RE.match(pattern):
+        raise ValueError(
+            f"glob pattern {pattern!r} contains characters outside what's "
+            "allowed for a glob (letters, digits, / . * ? [ ] { } , ! + @ -)"
+        )
+    cmd = (
+        f"cd {quote_path(path)} && "
+        f"shopt -s globstar nullglob && "
+        f"for f in {pattern}; do printf '%s\\n' \"$f\"; done | sort"
+    )
+    return run_command(cmd)
 
 
 def write_remote_file(path: str, content: str | bytes) -> str:

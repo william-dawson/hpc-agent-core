@@ -43,6 +43,17 @@ because they're broadly useful on top of the primitives above:
   docs-search tools. Fully generic, provided as-is by `docs_server.build()`;
   a machine repo doesn't reimplement these, only registers its own guide.
 
+**Optional, opt-in per machine** (not yet adopted anywhere — a machine repo
+decides for itself whether to add these, independent of anything else in
+this checklist):
+
+- `fs_grep` / `fs_glob` — remote analogues of a local Grep/Glob tool,
+  backed by `middleware.grep_files()` / `glob_files()`. See PORTING.md §7's
+  "Optional: fs_grep / fs_glob" section for the wiring and the two
+  semantics worth knowing (no-match isn't an error; the glob pattern is
+  allowlist-validated rather than shell-quoted, since it has to reach the
+  remote shell's own glob engine unescaped).
+
 ## Not this file's job
 
 - Per-machine coverage verdicts, deferrals, and the reasoning behind
