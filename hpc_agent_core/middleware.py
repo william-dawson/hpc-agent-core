@@ -248,12 +248,24 @@ def write_remote_file(path: str, content: str | bytes) -> str:
 # ---------------------------------------------------------------------------
 
 def _make_transport():
-    """Return a fresh rsync transport, falling back to scp if rsync < 3.0."""
+    """Return a fresh rsync transport, falling back to scp if rsync < 3.0.
+
+    remotemanager's rsync transport defaults to flags "auvh" (+ --checksum),
+    where "u" is rsync's --update: skip the copy whenever the destination
+    file's mtime is newer than the source's. fs_upload/fs_download are
+    explicit, one-shot "make this path equal to that path" operations, not a
+    two-way sync — if the agent (or a running job) has touched the remote
+    file more recently than the local one, --update makes rsync silently
+    skip the transfer instead of overwriting it, which is the opposite of
+    what an explicit push/pull call means. Content-based staleness is still
+    covered by --checksum (kept via the checksum=True default) and by the
+    sha256 verification below; only the mtime-based skip is dropped.
+    """
     from remotemanager.transport.rsync import rsync
     from remotemanager.transport.scp import scp as Scp
     c = get_frontend()
     try:
-        return rsync(url=c)
+        return rsync(url=c, flags="avh")
     except RuntimeError:
         return Scp(url=c)
 
@@ -289,11 +301,18 @@ def download_file(remote_path: str, local_dest: Path) -> dict:
         landed.rename(local_dest)
 
     local_sha = _sha256_local(local_dest)
+    if remote_sha != local_sha:
+        raise RuntimeError(
+            f"Download of {remote_path} landed at {local_dest} but content "
+            f"doesn't match (remote sha256 {remote_sha}, local sha256 "
+            f"{local_sha}). The remote file may have changed between the "
+            "checksum and the transfer."
+        )
     return {
         "local_path": str(local_dest),
         "bytes": local_dest.stat().st_size,
         "sha256": local_sha,
-        "verified": remote_sha == local_sha,
+        "verified": True,
         "transport": type(transport).__name__,
     }
 
@@ -323,10 +342,17 @@ def upload_file(local_path: Path, remote_path: str) -> dict:
         run_command(f"mv {quote_path(landed)} {quote_path(remote_path)}")
 
     remote_sha = run_command(f"sha256sum {quote_path(remote_path)}").split()[0]
+    if remote_sha != local_sha:
+        raise RuntimeError(
+            f"Upload of {local_path} to {remote_path} completed but content "
+            f"doesn't match (local sha256 {local_sha}, remote sha256 "
+            f"{remote_sha}). The remote file may have been modified "
+            "concurrently, or the transfer was silently skipped."
+        )
     return {
         "remote_path": remote_path,
         "bytes": local_path.stat().st_size,
         "sha256": local_sha,
-        "verified": remote_sha == local_sha,
+        "verified": True,
         "transport": type(transport).__name__,
     }
