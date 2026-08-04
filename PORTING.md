@@ -846,3 +846,83 @@ even if the core changelog claims the release is backward compatible.
   already gives you (`SchedulerBackend.submit()`, `middleware.run_command`,
   ...), so your own checklist only needs to record the machine-specific
   verdict, not rediscover what's already handled.
+
+## 12. Reproducible notebooks (optional, recommended)
+
+An interactive agent session is great for exploring, but its record — a chat
+transcript, done out of order, with dead ends — isn't something a co-author
+or a future you can re-run to check a result still holds. `hpc_agent_core.client`
+exists to distill that kind of session into a linear Jupyter notebook that
+calls the *same* MCP tool surface the agent used, not a hand-copied SSH/rsync
+script. That matters beyond tidiness: a hand-copied script is a second,
+unaudited implementation of talking to the cluster, and second implementations
+drift silently (a genuine `middleware.py` bug shipped for a while specifically
+in the untested rsync path — see its git history). A notebook built on
+`hpc_agent_core.client` exercises the exact code already covered by your own
+`tests/smoke.py`, so a regression there breaks the notebook too, instead of
+living unnoticed in a script nobody else runs.
+
+`connect_sync()` (or the async `connect()`, for concurrent/already-async use)
+opens an MCP stdio session and returns an `HpcClient`/`SyncHpcClient` that
+exposes every tool as a plain method — `hpc.submit_job(spec=spec)`, no
+`await`, no manual `__aenter__`/`__aexit__` spread across cells. `dev_params()`
+launches your `python -m <machine>_mcp.hpc_server` for local development;
+`pinned_params()` launches the exact `uv tool run --from git+...@<ref>`
+invocation your own `.mcp.json` uses, pinned to a tag/commit — pin it, don't
+leave it on `main`, or a notebook that reproduced a result in January silently
+reproduces something else by June.
+
+Three caching modes, chosen once when connecting — see `client.py`'s module
+docstring and `HpcClient.wait_for_job`/`fs_download` docstrings for the full
+contract, including why polling and file downloads each need bespoke (not
+generic per-call) caching:
+
+- `mode="live"` — always hits the real cluster.
+- `mode="lazy"` — cache-first, falls back to live on a miss. What you iterate
+  on a notebook with.
+- `mode="replay"` — cache-only, no SSH attempted at all. What you ship: commit
+  the cache directory (`examples/.hpc_cache/<name>/`) alongside the notebook
+  so `mode="replay"` reproduces the whole narrative — including the actual
+  bytes of any downloaded file, not just a "verified: true" claim — for
+  someone with no cluster account at all.
+
+**The one discipline that actually matters here: every cell output committed
+to the notebook, and every file in the committed cache directory, must come
+from really executing the cells against the real cluster — never authored,
+never guessed, never "this is obviously what it would print."** Two bugs in
+this exact machinery were caught only because of that discipline, not
+in-principle review of the code:
+
+- The first cut of `fs_download`'s caching stored only metadata (checksum,
+  byte count), not the file's actual bytes — so a `mode="replay"` run from a
+  fresh clone would have reported a successful, verified download while the
+  file silently never got written. Invisible until an actual `mode="replay"`
+  run from an isolated directory with no prior live connection was tried.
+- The first cut of `connect_sync` scheduled each call as an independent
+  asyncio Task via `run_coroutine_threadsafe`. Fine against a mocked session;
+  against the real MCP stdio transport it raised `RuntimeError: Attempted to
+  exit cancel scope in a different task than it was entered in`, because
+  `anyio`'s cancel scopes are task-affine. A mocked test never exercises
+  `anyio` at all, so only a real subprocess connection caught it.
+
+Neither bug was reachable by reasoning about the code — both needed an actual
+live run to surface. Hold your own machine's notebook to the same bar: run it
+for real (`mode="live"`, from a clean checkout) before committing its cache
+directory, the same way §9 insists on an actual submitted job, not just a
+passing `doctor`.
+
+Repo convention: `examples/<name>.ipynb` plus the committed
+`examples/.hpc_cache/<name>/` recording (JSON metadata + `.blob` files for
+any cached downloads); add the notebook's own runtime-generated output
+directory (e.g. `examples/downloads/`) to `.gitignore` — that's regenerated
+by running the notebook, not part of the recording.
+
+Document this for the agent as one more skill in §11's set —
+`<machine>-reproducing` — covering when to reach for this (the user asks to
+make a result reproducible or shareable, or you've just finished a chunk of
+exploratory tool use worth preserving), and pointing at your `examples/`
+notebook as the worked reference to imitate.
+
+This needs `hpc_agent_core.client`, added in `hpc-agent-core` 0.5.0 — bump
+your pin (see §9's note on bumping pins deliberately) if you ported before
+then.

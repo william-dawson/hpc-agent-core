@@ -32,6 +32,14 @@ top of this package, start there, not here.
 - `docs_server.py`, `doctor.py`, `serving.py`, `mcp_server.py` — the generic
   MCP plumbing. A machine repo mostly just supplies its own facts, guide, and
   tool surface on top of these.
+- `client.py` — the public, notebook/script-facing MCP client (`connect()`,
+  `HpcClient`, on-disk caching). For distilling exploratory agent work into a
+  reproducible notebook that calls a machine's real tool surface directly,
+  instead of a hand-copied SSH script. See the module docstring for the
+  three caching modes (`live`/`lazy`/`replay`).
+- `testing.py` — smoke-test-only plumbing (`Summary`, tiers, billing gate)
+  for each machine repo's `tests/smoke.py`; re-exports `call`/`payload` from
+  `client.py` rather than duplicating them.
 
 ## Tool surface: the IRI Facility API
 
