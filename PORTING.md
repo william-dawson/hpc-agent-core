@@ -920,8 +920,30 @@ by running the notebook, not part of the recording.
 Document this for the agent as one more skill in §11's set —
 `<machine>-reproducing` — covering when to reach for this (the user asks to
 make a result reproducible or shareable, or you've just finished a chunk of
-exploratory tool use worth preserving), and pointing at your `examples/`
-notebook as the worked reference to imitate.
+exploratory tool use worth preserving).
+
+**The skill file must be self-contained — inline the code pattern
+(`connect_sync`/`dev_params`/`pinned_params`, the mode discipline) directly
+in the skill's own text.** Do not tell the agent to go read your `examples/`
+notebook as a reference: that file only exists in *your own* repo checkout.
+An agent running from an actually-installed plugin (the normal case — no
+local git clone, `uv tool run` fetches and runs the server from an ephemeral
+env) has no local copy of it to find. The first cut of this skill for
+RCCS-CloudAgent got exactly this wrong — pointed at `examples/
+reproduction_demo.ipynb` "in this repo" — and a live test caught the actual
+failure mode: the agent, unable to resolve that reference, searched the
+filesystem, found an unrelated local dev checkout that happened to exist on
+the same machine, and ran a probe script against *that* checkout's venv
+instead of using its own already-installed MCP tools. Worked by pure
+proximity accident on a laptop that had both the plugin and the dev repo;
+would have failed outright — or worse, silently done something equally
+wrong — anywhere else. Explicitly tell the skill: don't go looking for a
+local checkout of this plugin or of `hpc-agent-core`; if one happens to
+exist on disk, it isn't part of the installation. Explicitly tell it, too,
+that `hpc_agent_core.client` code belongs *inside the notebook being
+written*, never something to shell out to during the agent's own
+exploration — that work already goes through the normal MCP tool calls it
+has.
 
 This needs `hpc_agent_core.client`, added in `hpc-agent-core` 0.5.0 — bump
 your pin (see §9's note on bumping pins deliberately) if you ported before
