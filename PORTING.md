@@ -918,32 +918,34 @@ directory (e.g. `examples/downloads/`) to `.gitignore` — that's regenerated
 by running the notebook, not part of the recording.
 
 Document this for the agent as one more skill in §11's set —
-`<machine>-reproducing` — covering when to reach for this (the user asks to
-make a result reproducible or shareable, or you've just finished a chunk of
-exploratory tool use worth preserving).
+`<machine>-reproducing`. Write it as a strict, self-contained procedure —
+every fact the agent needs is in this one file, nothing external. Build it
+in exactly this shape:
 
-**The skill file must be self-contained — inline the code pattern
-(`connect_sync`/`dev_params`/`pinned_params`, the mode discipline) directly
-in the skill's own text.** Do not tell the agent to go read your `examples/`
-notebook as a reference: that file only exists in *your own* repo checkout.
-An agent running from an actually-installed plugin (the normal case — no
-local git clone, `uv tool run` fetches and runs the server from an ephemeral
-env) has no local copy of it to find. The first cut of this skill for
-RCCS-CloudAgent got exactly this wrong — pointed at `examples/
-reproduction_demo.ipynb` "in this repo" — and a live test caught the actual
-failure mode: the agent, unable to resolve that reference, searched the
-filesystem, found an unrelated local dev checkout that happened to exist on
-the same machine, and ran a probe script against *that* checkout's venv
-instead of using its own already-installed MCP tools. Worked by pure
-proximity accident on a laptop that had both the plugin and the dev repo;
-would have failed outright — or worse, silently done something equally
-wrong — anywhere else. Explicitly tell the skill: don't go looking for a
-local checkout of this plugin or of `hpc-agent-core`; if one happens to
-exist on disk, it isn't part of the installation. Explicitly tell it, too,
-that `hpc_agent_core.client` code belongs *inside the notebook being
-written*, never something to shell out to during the agent's own
-exploration — that work already goes through the normal MCP tool calls it
-has.
+1. **State the agent's two available capabilities up front, by name**: the
+   MCP tools already registered in the current session (use these normally
+   for the task itself), and Python code written into the notebook file
+   being produced (the only place `hpc_agent_core.client` code appears).
+2. **Give the exact, already-filled-in `pinned_params(...)` call** for your
+   repo — your real git remote URL, your real console-script name (from
+   `server/pyproject.toml`'s `[project.scripts]`), `subdirectory="server"`.
+   Copy-pasteable as written, not a template the agent derives from your
+   `.mcp.json`.
+3. **Give a complete, runnable code skeleton**: `connect_sync(...)` +
+   representative tool calls + `hpc.close()`.
+4. **Give the caching-mode contract as a three-row table**: mode → behavior
+   → when to use it (`live`/`lazy`/`replay`).
+5. **State exactly where the notebook file goes**: the user's own project
+   directory, or wherever they specify.
+6. **Give the validate-then-ship sequence as numbered steps**: run with
+   `mode="live"` from an empty cache directory; capture only real,
+   just-executed output; copy that cache directory next to the notebook;
+   tell the user to commit both if versioning this.
+
+An agent following this skill has no local checkout of your repo or of
+`hpc-agent-core` — `uv tool run` fetches and runs the server from an
+ephemeral environment, nothing lands on disk. Every fact above must be
+written into the skill text itself, in full, not referenced by path.
 
 This needs `hpc_agent_core.client`, added in `hpc-agent-core` 0.5.0 — bump
 your pin (see §9's note on bumping pins deliberately) if you ported before
