@@ -3,6 +3,8 @@
 This project provides the core for developing an agent that can interact
 with an HPC cluster. From your own personal computer, the agent will be able
 to connect to the cluster, compile code, organize data, and submit jobs.
+This agent should work with any standard harness that supports
+mcp servers (claude code, codex, opencode, cline, etc).
 
 Used by:
 
@@ -38,7 +40,7 @@ a new agent for X"
 The coding agent will make all the design decisions and implement all the
 cluster specific code.
 
-## Tool surface: the IRI Facility API
+### Tool surface: the IRI Facility API
 
 Each machine's MCP tool surface is meant to mirror the [IRI Facility
 API](https://api.alcf.anl.gov/openapi.json) (the DOE standard this family
