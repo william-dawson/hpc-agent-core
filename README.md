@@ -6,6 +6,8 @@ to connect to the cluster, compile code, organize data, and submit jobs.
 This agent should work with any standard harness that supports
 mcp servers (claude code, codex, opencode, cline, etc).
 
+https://github.com/user-attachments/assets/770e1f11-01c7-48f3-8c89-70efc3722e95
+
 Used by:
 
 - [Rikyu-Agent](https://github.com/RIKEN-RCCS/Rikyu-Agent) — Rikyu
