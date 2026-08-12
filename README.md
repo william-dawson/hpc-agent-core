@@ -1,45 +1,42 @@
 # hpc-agent-core
 
-Shared runtime behind the RIKEN family of HPC agent plugins — Claude Code /
-Codex plugins that let an agent submit and monitor jobs, manage files, and
-search documentation on a supercomputer over SSH.
+This project provides the core for developing an agent that can interact
+with an HPC cluster. From your own personal computer, the agent will be able
+to connect to the cluster, compile code, organize data, and submit jobs.
 
 Used by:
 
-- [Rikyu-Agent](https://github.com/RIKEN-RCCS/Rikyu-Agent) — Rikyu (GB200, Slurm)
-- [Hokusai-Agent](https://github.com/RIKEN-RCCS/Hokusai-Agent) — HOKUSAI BigWaterfall2 (Slurm)
-- [RCCS-CloudAgent](https://github.com/RIKEN-RCCS/RCCS-CloudAgent) — R-CCS Cloud (Slurm, heterogeneous hardware)
-- and several other machine repos — see [`PORTING.md`](PORTING.md) for the full list and how they're built
+- [Rikyu-Agent](https://github.com/RIKEN-RCCS/Rikyu-Agent) — Rikyu
+- [Hokusai-Agent](https://github.com/RIKEN-RCCS/Hokusai-Agent) — HOKUSAI BigWaterfall2
+- [RCCS-CloudAgent](https://github.com/RIKEN-RCCS/RCCS-CloudAgent) — R-CCS Cloud
+- [Fugaku-Agent](https://github.com/RIKEN-RCCS/Fugaku-Agent) — Supercomputer Fugaku
+- and several other machines across the globe.
 
-## Building a new agent for a new cluster? Read `PORTING.md`.
+## Building a new agent for a new cluster?
 
-**[`PORTING.md`](PORTING.md) is the complete porting guide** — what facts to
-gather about a machine, how to wire up `config.py`/`compute.py`, what the MCP
-tool surface should look like, and how to validate a port before calling it
-done. If you're an agent (or a person) about to build a new machine repo on
-top of this package, start there, not here.
+This project is an exercise in Specification Driven Development. As we know,
+clusters are not standardized. Each one offers a unique combination of hardware
+and software. Interactions with the cluster are also not standardized.
+For example, two clusters may expose slurm as the job scheduler, yet the
+way the queues are set up, the required arguments, the complementary commands
+for things like budgeting, are all unique. In the age of traditional software
+programming, the idea of exposing (and maintaining) a unified interface to 
+clusters all over the world was extremely challenging. 
 
-## What's here
+AI coding provides an alternative approach. Our goal in this project is to
+develop a comprehensive **specification** for cluster interactions, such that
+one can use vibe coding to automatically generate a new cluster agent.
+That specification is in` hpc_agent_core/PORTING.md`. 
 
-- `config.py` — settings resolution (env var > config file > default).
-- `middleware.py` — the SSH execution layer; the only thing that talks to the
-  cluster.
-- `models.py` — PSI/J-style job models (`JobSpec`, `ResourceSpec`, `Job`, ...).
-- `compute/slurm.py`, `compute/gridengine.py` — config-driven scheduler
-  backends (script rendering, submit/status/cancel).
-- `rag/` — the docs-search pipeline: BM25 keyword search, with optional
-  vector embeddings, over a machine's bundled guide.
-- `docs_server.py`, `doctor.py`, `serving.py`, `mcp_server.py` — the generic
-  MCP plumbing. A machine repo mostly just supplies its own facts, guide, and
-  tool surface on top of these.
-- `client.py` — the public, notebook/script-facing MCP client (`connect()`,
-  `HpcClient`, on-disk caching). For distilling exploratory agent work into a
-  reproducible notebook that calls a machine's real tool surface directly,
-  instead of a hand-copied SSH script. See the module docstring for the
-  three caching modes (`live`/`lazy`/`replay`).
-- `testing.py` — smoke-test-only plumbing (`Summary`, tiers, billing gate)
-  for each machine repo's `tests/smoke.py`; re-exports `call`/`payload` from
-  `client.py` rather than duplicating them.
+Imagine you want to port this agent approach to a new machine. You should 
+follow these steps:
+* Clone this repository
+* Download the documentation related to your cluster
+* Start up a coding agent and tell it "given the documentation about machine
+X in in folder Y and the porting guide in folder `hpc_agent_core`, implement
+a new agent for X"
+The coding agent will make all the design decisions and implement all the
+cluster specific code.
 
 ## Tool surface: the IRI Facility API
 
