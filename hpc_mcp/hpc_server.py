@@ -234,12 +234,20 @@ def update_job(facility: str, job_id: str, spec: JobSpec) -> Job:
 
 @mcp.tool()
 def run_command_on_cluster(facility: str, command: str) -> str:
-    """Run an arbitrary shell command on a facility's login node (extension
-    — not an IRI endpoint). Before calling this, show the user the exact
-    command (or script) and a one-line explanation of what it does, then
-    call it — skip the preview only if the user explicitly asked to just
-    run something. Do not run heavy computation on the login node — submit
-    a job instead."""
+    """Run an arbitrary shell command on a facility's login node.
+
+    **Extension, and the most consequential one here.** IRI has no such
+    endpoint, almost certainly on purpose: this bypasses every other tool's
+    structure — submit_job's validation and defaults, fs_rm's refusal list,
+    the whole typed surface. Prefer the specific tool whenever one fits,
+    and reach for this only for things no tool covers (`module avail`,
+    quota checks, attaching to a running job for diagnostics).
+
+    Before calling this, show the user the exact command (or script) and a
+    one-line explanation of what it does, then call it — skip the preview
+    only if the user explicitly asked to just run something. Do not run
+    heavy computation on the login node — submit a job instead.
+    """
     return run_command(facility, command)
 
 
@@ -328,6 +336,9 @@ def fs_rm(facility: str, path: str, recursive: bool = False) -> str:
 
     Refuses a handful of paths outright (the home directory itself, `/`,
     `.`, `..`, a bare glob) — deleting those is almost always an accident.
+    That guard catches mistakes made *through this tool*; it is not a
+    security boundary, because `run_command_on_cluster` can run `rm`
+    directly. Treat the confirmation above as the real protection.
     """
     normalized = middleware.norm_path(path).strip().rstrip("/")
     if normalized in _RM_REFUSED or path.strip() in _RM_REFUSED:

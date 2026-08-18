@@ -35,7 +35,7 @@ repo-wide, not a per-machine template.
 | `GET /api/v1/compute/status/{resource_id}/{job_id}` | `get_job_status` | |
 | `POST /api/v1/compute/status/{resource_id}` | `get_job_statuses` | Empty `job_ids` means "this user's recent jobs" |
 | `DELETE /api/v1/compute/cancel/{resource_id}/{job_id}` | `cancel_job` | |
-| `GET /api/v1/filesystem/ls/{resource_id}` | `fs_ls` | |
+| `GET /api/v1/filesystem/ls/{resource_id}` | `fs_ls` | `show_hidden` is the spec's `showHidden`; its `numericUid`/`recursive`/`dereference` are not exposed |
 | `GET /api/v1/filesystem/stat/{resource_id}` | `fs_stat` | |
 | `GET /api/v1/filesystem/view/{resource_id}`, `GET .../file/{resource_id}` | `fs_view` | One tool covers both read forms |
 | `GET /api/v1/filesystem/head/{resource_id}` | `fs_head` | |
@@ -49,7 +49,7 @@ repo-wide, not a per-machine template.
 | `PUT /api/v1/filesystem/chmod/{resource_id}` | `fs_chmod` | |
 | `PUT /api/v1/filesystem/chown/{resource_id}` | `fs_chown` | |
 | `POST /api/v1/filesystem/symlink/{resource_id}` | `fs_symlink` | |
-| `POST /api/v1/filesystem/compress/{resource_id}` | `fs_compress` | |
+| `POST /api/v1/filesystem/compress/{resource_id}` | `fs_compress` | `match_pattern`/`dereference` are the spec's own body fields, not additions |
 | `POST /api/v1/filesystem/extract/{resource_id}` | `fs_extract` | |
 | `DELETE /api/v1/filesystem/rm/{resource_id}` | `fs_rm` | Adds a `recursive` flag the spec lacks, and refuses home/root paths — see Deviations |
 | `GET .../projects/{id}/project_allocations` | `get_project_allocations` | `sacctmgr show assoc` TRES/QOS ceilings |
@@ -72,7 +72,9 @@ repo-wide, not a per-machine template.
   `recursive=True` to remove a directory, so "delete this file" cannot
   become "delete this whole tree" through a typo, and refuses a short list
   of paths outright (home directory, `/`, `.`, `..`, a bare glob). These
-  filesystems have no trash; the deviation is deliberate.
+  filesystems have no trash; the deviation is deliberate. Note the guard
+  catches accidents made through this tool, not a determined caller —
+  `run_command_on_cluster` can invoke `rm` directly (see below).
 - **`fs_upload`/`fs_download`**: rsync (scp fallback) with sha256
   verification and no size limit, rather than the spec's multipart /
   base64-in-body shapes.
@@ -85,8 +87,19 @@ repo-wide, not a per-machine template.
 - `render_job_script` — preview the fully-defaulted batch script without
   submitting and without touching the scheduler.
 - `get_drained_nodes` — nodes currently down/drained, and why.
-- `run_command_on_cluster` — escape hatch for arbitrary login-node
-  commands. Always show the command to the user first (PORTING.md §10).
+- `run_command_on_cluster` — arbitrary login-node shell. **The one
+  extension worth arguing about.** IRI has no such endpoint, and that is
+  very likely deliberate: a facility REST API that exposed "run any shell
+  command" would make the rest of its typed surface advisory. The same is
+  true here — this tool can bypass `submit_job`'s validation and defaults,
+  `fs_rm`'s refusal list, and every other structural guarantee in this
+  file. It is kept because it is genuinely necessary (`module avail`,
+  quota checks, attaching to a running job for diagnostics) and because
+  all nine repos in this family have always had it, but it should be
+  understood as the surface's actual trust boundary: the protections
+  described elsewhere here guard against *mistakes*, not against a
+  determined caller. Always show the command to the user first
+  (PORTING.md §10).
 - `search_docs`, `list_doc_sections`, `read_doc_section` — RAG docs search,
   on the separate `hpc-docs-mcp` server.
 
