@@ -570,13 +570,16 @@ finished.
   `~/agent/` (the default `jobs_dir="agent/jobs"` already does this) — not
   scattered loose in `$HOME`, and not hidden in a dotfile directory either.
   This is a bias, not a restriction: honor any explicit path the user gives.
-- **Show before you run.** Before `submit_job` or `run_command_on_cluster`
-  actually executes something, show the user what's about to run (the
-  JobSpec, or the exact command/script) and a brief explanation, unless
-  they've explicitly said to just run it. This applies only to those two
-  consequential tools, not to every tool call — see `hpc-demo`'s skill text
-  for the exact wording that keeps this from over-generalizing into "narrate
-  everything, including read-only calls."
+- **Show before you run.** Before `submit_job`, `run_command_on_cluster`,
+  or `fs_rm` actually does something, show the user what's about to happen
+  (the JobSpec, the exact command/script, or the exact path being deleted)
+  and a brief explanation, unless they've explicitly said to just do it.
+  `fs_rm` is the strictest of the three — confirm the path every time, even
+  when the user asked for a deletion in general terms, because these
+  filesystems have no trash. This applies only to those three consequential
+  tools, not to every tool call — see the `demo` skill template for the
+  wording that keeps it from over-generalizing into "narrate everything,
+  including read-only calls."
 - **Never invent a documentation URL.** If `docs_cite_url` is blank (see
   §3), search results carry no URL — don't add one back in anywhere.
 

@@ -129,6 +129,18 @@ class SchedulerBackend(ABC):
             f"{type(self).__name__} does not implement get_projects()"
         )
 
+    def get_project_allocations(self, project_id: str) -> dict:
+        """A project's allocation limits (its account-wide ceilings)."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement get_project_allocations()"
+        )
+
+    def get_user_allocations(self, project_id: str) -> dict:
+        """The current user's allocation share within a project."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement get_user_allocations()"
+        )
+
     @abstractmethod
     def render_script(self, spec: JobSpec) -> str:
         """Render *spec* as a scheduler-specific batch script."""

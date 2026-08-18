@@ -530,6 +530,55 @@ class SlurmBackend(SchedulerBackend):
             job.status.message = f"{job.status.message} — {note}" if job.status.message else note
         return job
 
+    def _allocation(self, scope: str, project_id: str, missing: str) -> dict:
+        """One `sacctmgr show assoc` row as an IRI-style allocation dict.
+
+        `scope` is the extra selector ("" for the whole account, or
+        "user=$USER") — the account-wide ceiling and the current user's
+        slice of it are the same query at two scopes.
+        """
+        if not self.has_accounting:
+            raise NotImplementedError(
+                f"Facility {self.facility!r} has no Slurm accounting, so there "
+                "are no allocations to report."
+            )
+        output = run_command(
+            self.facility,
+            f"sacctmgr show assoc {scope} account={shlex.quote(project_id)} "
+            "format=Account,GrpTRESMins,GrpTRESRunMins,QOS --parsable2 --noheader",
+        )
+        for line in output.strip().splitlines():
+            parts = line.split("|")
+            if len(parts) < 4 or not parts[0] or parts[0] == "Account":
+                continue
+            return {
+                "project_id": parts[0],
+                "grp_tres_mins": parts[1] or None,
+                "grp_tres_run_mins": parts[2] or None,
+                "qos": parts[3] or None,
+            }
+        raise ValueError(missing)
+
+    def get_project_allocations(self, project_id: str) -> dict:
+        """A project's account-wide allocation ceilings.
+
+        GrpTRESMins caps cumulative core-time for everyone under the
+        account; GrpTRESRunMins caps concurrently-running core-time. Both
+        are empty on a site that doesn't enforce those limits, which is not
+        an error — the association still exists.
+        """
+        return self._allocation(
+            "", project_id, f"No allocation found for project {project_id!r}"
+        )
+
+    def get_user_allocations(self, project_id: str) -> dict:
+        """The current user's slice of a project's allocation — the same
+        query scoped to $USER under that account."""
+        return self._allocation(
+            "user=$USER", project_id,
+            f"No allocation found for the current user under project {project_id!r}",
+        )
+
     def get_live_resources(self) -> list[dict]:
         """Live per-partition node occupancy via `sinfo --summarize`.
         Generic across every Slurm facility — not specific to any dialect

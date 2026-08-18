@@ -51,6 +51,9 @@ repo-wide, not a per-machine template.
 | `POST /api/v1/filesystem/symlink/{resource_id}` | `fs_symlink` | |
 | `POST /api/v1/filesystem/compress/{resource_id}` | `fs_compress` | |
 | `POST /api/v1/filesystem/extract/{resource_id}` | `fs_extract` | |
+| `DELETE /api/v1/filesystem/rm/{resource_id}` | `fs_rm` | Adds a `recursive` flag the spec lacks, and refuses home/root paths — see Deviations |
+| `GET .../projects/{id}/project_allocations` | `get_project_allocations` | `sacctmgr show assoc` TRES/QOS ceilings |
+| `GET .../project_allocations/{id}/user_allocations` | `get_user_allocations` | Same query scoped to `$USER` |
 
 ## Deviations worth knowing
 
@@ -65,6 +68,11 @@ repo-wide, not a per-machine template.
   resource* (a cluster). Here the facility slug already selects the
   cluster, so our `name` argument selects a **partition within** it — the
   granularity that actually answers "will my job start soon".
+- **`fs_rm`**: the spec takes only a path. Ours also requires
+  `recursive=True` to remove a directory, so "delete this file" cannot
+  become "delete this whole tree" through a typo, and refuses a short list
+  of paths outright (home directory, `/`, `.`, `..`, a bare glob). These
+  filesystems have no trash; the deviation is deliberate.
 - **`fs_upload`/`fs_download`**: rsync (scp fallback) with sha256
   verification and no size limit, rather than the spec's multipart /
   base64-in-body shapes.
@@ -88,11 +96,9 @@ Verified absent from our tool surface, with the reason:
 
 | IRI endpoint | Why not |
 |---|---|
-| `DELETE /api/v1/filesystem/rm/{resource_id}` | **A genuine gap, not a decision.** Verified absent from all nine repos in this family, onboarded and not. Deleting user data deserves a deliberate design pass (confirmation semantics, recursive vs single file) rather than a one-line `rm` wrapper. Deletion is still possible via `run_command_on_cluster`, which shows the command to the user first. |
 | `GET /api/v1/task`, `GET,DELETE /api/v1/task/{task_id}` | The spec's async task-handle model. Our tools are synchronous over SSH — a call returns when the work is done, so there is no handle to poll or cancel. |
 | `GET /api/v1/status/events`, `/events/{id}`, `/incidents`, `/incidents/{id}` | Facility outage/maintenance feeds. These are site web services, not derivable over SSH, and no onboarded facility exposes an equivalent we could call. |
 | `GET /api/v1/account/capabilities`, `/capabilities/{id}` | Capability discovery for the REST API itself; not meaningful for an MCP surface where the tool list *is* the capability list. |
-| `GET .../project_allocations[/{id}]`, `.../user_allocations[/{id}]` | **Should be implemented; currently missing.** An earlier revision of this file claimed these need a per-facility source and belong in a `get_projects()` override — that was wrong. Two sibling repos (Tsubame4-Agent, octopus-agent) already implement `get_project_allocations`/`get_user_allocations` as plain generic Slurm tools over `sacctmgr show assoc format=GrpTRESMins,GrpTRESRunMins,QOS`, with nothing machine-specific in them. Port that shape onto `SlurmBackend` when onboarding either facility. |
 | `GET /api/v1/facility/sites`, `/sites/{site_id}` | Multi-site topology under one facility. `get_facilities` covers the analogous need here, and no onboarded facility is multi-site. |
 
 ## Not this file's job

@@ -256,6 +256,22 @@ def check_repo() -> None:
         for text, rc in real_ssh_failures:
             assert unreachable(text, rc), f"missed a real SSH failure: {text!r} rc={rc}"
 
+    def fs_rm_refuses_dangerous_paths():
+        """fs_rm is the one irreversible tool here — these filesystems have
+        no trash. Deleting a home directory or a filesystem root is far more
+        likely to be a mistake (an unset variable, a stray default, a glob
+        that expanded to nothing) than an intent, so those must be refused
+        before any command is built, not just discouraged in a docstring."""
+        from hpc_mcp.hpc_server import fs_rm
+        for bad in ["", " ", ".", "..", "/", "~", "~/", "*", "$HOME", ".//"]:
+            try:
+                fs_rm("__no_such_facility__", bad)
+            except ValueError as e:
+                assert "Refusing to delete" in str(e), (
+                    f"{bad!r} reached facility lookup instead of being refused: {e}")
+            else:
+                raise AssertionError(f"fs_rm did not refuse {bad!r}")
+
     def every_facility_has_skill_notes():
         """A facility with no notes for a workflow still renders (a stub is
         substituted), but submitting-jobs is where a port's real value
@@ -270,6 +286,7 @@ def check_repo() -> None:
     check("at least one facility is registered", facilities_exist)
     check("unknown facility errors clearly, listing valid slugs", unknown_facility_errors_clearly)
     check("slugs are lowercase and safe", slugs_are_url_and_identifier_safe)
+    check("fs_rm refuses home/root paths", fs_rm_refuses_dangerous_paths)
     check("scheduler errors aren't mistaken for SSH failures", unreachable_detection_discriminates)
     check("every facility has real submitting-jobs notes", every_facility_has_skill_notes)
 

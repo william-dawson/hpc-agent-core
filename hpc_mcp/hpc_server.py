@@ -22,7 +22,7 @@ from pathlib import Path
 import hpc_mcp  # noqa: F401 -- import for its side effect: registers every facility
 from hpc_agent_core.mcp_server import MCPServer
 
-from hpc_agent_core import config
+from hpc_agent_core import config, middleware
 from hpc_agent_core.middleware import (
     download_file,
     quote_path,
@@ -124,6 +124,28 @@ def get_project(facility: str, account: str) -> dict:
         f"Account {account!r} is not one the current user can charge on facility "
         f"{facility!r}. Call get_projects to see the available accounts."
     )
+
+
+@mcp.tool()
+def get_project_allocations(facility: str, project_id: str) -> dict:
+    """A project's allocation limits — the account-wide ceilings shared by
+    everyone under it.
+    (IRI: GET /api/v1/account/projects/{project_id}/project_allocations)
+
+    On Slurm: GrpTRESMins caps cumulative core-time, GrpTRESRunMins caps
+    concurrently-running core-time. Either may be empty on a site that
+    doesn't enforce that limit — that's not an error.
+    """
+    return get_backend(facility).get_project_allocations(project_id)
+
+
+@mcp.tool()
+def get_user_allocations(facility: str, project_id: str) -> dict:
+    """The current user's allocation share within a project — the per-user
+    slice of get_project_allocations' account-wide ceiling.
+    (IRI: GET /api/v1/account/projects/{project_id}/project_allocations/{id}/user_allocations)
+    """
+    return get_backend(facility).get_user_allocations(project_id)
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +302,46 @@ def fs_download(facility: str, remote_path: str, local_path: str | None = None) 
     """
     dest = Path(local_path) if local_path else Path.cwd() / Path(remote_path).name
     return download_file(facility, remote_path, dest)
+
+
+#: Paths fs_rm refuses outright, after normalisation. Deleting any of these
+#: is far more likely to be a mistake (an unset variable, a stray default,
+#: a glob that expanded to nothing) than an intent, and the cost of being
+#: wrong is unrecoverable — there is no trash on these filesystems.
+_RM_REFUSED = {"", ".", "..", "/", "~", "*", "$HOME"}
+
+
+@mcp.tool()
+def fs_rm(facility: str, path: str, recursive: bool = False) -> str:
+    """Delete a file, or (with recursive=True) a directory tree, on the
+    cluster. (IRI: DELETE /api/v1/filesystem/rm/{resource_id})
+
+    **Destructive and not recoverable — these filesystems have no trash.
+    Confirm the exact path with the user before calling this, every time,
+    even if they asked for a deletion in general terms.**
+
+    recursive is required to remove a directory: without it this is a plain
+    `rm`, which fails on a directory rather than silently taking the tree
+    with it. The IRI spec takes only a path; this extra flag is a
+    deliberate deviation so "delete this file" can never become "delete
+    this whole tree" through a typo.
+
+    Refuses a handful of paths outright (the home directory itself, `/`,
+    `.`, `..`, a bare glob) — deleting those is almost always an accident.
+    """
+    normalized = middleware.norm_path(path).strip().rstrip("/")
+    if normalized in _RM_REFUSED or path.strip() in _RM_REFUSED:
+        raise ValueError(
+            f"Refusing to delete {path!r}: that resolves to the home directory "
+            "or a filesystem root. Name the specific file or subdirectory to "
+            "remove."
+        )
+    flag = "-r " if recursive else ""
+    quoted = quote_path(path)
+    return run_command(
+        facility,
+        f"rm {flag}-- {quoted} && echo removed: {quoted}",
+    )
 
 
 @mcp.tool()
