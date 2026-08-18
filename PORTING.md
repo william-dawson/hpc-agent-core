@@ -484,8 +484,9 @@ python scripts/render_facility_tables.py
 
 This rewrites the block between the `FACILITY_TABLE:START` /
 `FACILITY_TABLE:END` HTML-comment marker pair in every file that has one
-(README.md, AGENTS.md, the `hpc-facilities` skill) — commit the result. CI
-runs the same script with `--check` and fails the PR if you forgot.
+(README.md, AGENTS.md, the `hpc-facilities` skill). CI runs it on your pull
+request and commits the result back, so forgetting is not fatal — but
+running it yourself lets you read what you're actually shipping.
 
 (Note for anyone editing *this* file: don't write the two markers next to
 each other as a literal matched HTML-comment pair anywhere in this
@@ -566,9 +567,11 @@ After adding or editing anything under `skill_notes/`, regenerate:
 python scripts/render_skills.py
 ```
 
-Commit the generated `plugins/hpc/skills/<slug>-*/SKILL.md` files too — CI
-runs the same script with `--check` and fails the PR if they're stale
-relative to your templates/notes.
+CI regenerates `plugins/hpc/skills/<slug>-*/SKILL.md` on your pull request
+and commits them back, so you don't have to remember. Do run it locally
+before you call the port done, though: the generated skill is what the
+agent actually reads, and it's worth seeing that your notes land where you
+expected.
 
 #### A workflow only your facility has
 
@@ -624,8 +627,11 @@ python scripts/check_wheel_data.py                # your data/ really ships in a
 .venv/bin/python tests/live_smoke.py --job mymachine   # + submits a real tiny job on your facility
 ```
 
-Commit whatever the two `render_*` scripts change — CI runs them with
-`--check` and fails the PR if the generated files are stale.
+You don't strictly have to run the two `render_*` scripts — CI runs them on
+your pull request and commits the result back to your branch. Run them
+locally anyway if you want to see your skills as the agent will read them
+before anyone else does. (A PR from a *fork* can't be written to, so there
+CI tells you to run them and commit.)
 
 Run `tests/conformance.py` first — it needs no cluster and catches the
 common facility mistakes (a default that overwrites a caller's value, an

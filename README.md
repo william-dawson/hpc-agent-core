@@ -130,8 +130,11 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 .venv/bin/python tests/live_smoke.py --job rikyu  # + submits a real job
 ```
 
-Two generated things must be regenerated and committed when you touch a
-cluster — CI fails the pull request otherwise:
+Some files are generated from each cluster's `facility.json` and
+`skill_notes/` — the cluster table above, and one skill file per cluster
+per workflow. **You don't have to run anything for this**: CI regenerates
+them on your pull request and commits the result back to your branch. Run
+them yourself if you'd rather read the output first:
 
 ```bash
 python scripts/render_facility_tables.py   # after editing facility.json

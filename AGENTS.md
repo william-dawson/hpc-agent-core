@@ -51,6 +51,27 @@ Two consequences worth knowing before you change anything here:
   for JSON-RPC; log to stderr only. `remotemanager`'s progress output is
   redirected by `middleware.py`.
 
+## This branch must never publish to PyPI
+
+`main` of this same repository publishes the `hpc-agent-core` library on a
+released tag. **This branch must not.** It is a divergent fork of that
+engine, and publishing it would either create a confusing second package or
+— far worse — ship an API-incompatible `hpc_agent_core` to everyone
+depending on the real one.
+
+Three things keep that true; leave all three alone:
+
+- there is **no publish workflow on this branch** (`main` has one; this
+  branch deliberately does not — don't copy it over);
+- `.github/workflows/ci.yml` grants only `contents: write`. PyPI trusted
+  publishing requires `id-token: write`, so no step in this workflow can
+  authenticate to PyPI even if one were added;
+- the package is named `hpc-agent-hub`, so it could not overwrite
+  `hpc-agent-core` in any case.
+
+`main`'s publish workflow triggers on `release: published` and is unaffected
+by anything on this branch — pushing here cannot fire it.
+
 ## Repo map
 
 ```
