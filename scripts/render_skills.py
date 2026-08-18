@@ -110,6 +110,31 @@ def main() -> int:
     stale = []
     written = []
     seen_dirs = set()
+
+    # Facility-unique skills: a workflow only one machine has, with no
+    # shared template to render from. Fugaku's build guidance is the
+    # motivating case — cross-compiling for A64FX is a real workflow there
+    # and meaningless everywhere else, so adding a `build` template would
+    # give every other facility an empty skill. These are copied verbatim
+    # from facilities/<slug>/skills/<name>/SKILL.md, with the same scalar
+    # placeholders substituted so they can still say facility="{{SLUG}}".
+    for fac in facilities:
+        for skill_dir in sorted((fac["_dir"] / "skills").glob("*/")):
+            source = skill_dir / "SKILL.md"
+            if not source.exists():
+                continue
+            out_dir = SKILLS_DIR / f"{fac['slug']}-{skill_dir.name.rstrip('/')}"
+            seen_dirs.add(out_dir)
+            out_path = out_dir / "SKILL.md"
+            rendered = render_one(source.read_text(), fac, "__unique__")
+            if out_path.exists() and out_path.read_text() == rendered:
+                continue
+            stale.append(out_path)
+            if not args.check:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(rendered)
+                written.append(out_path)
+
     for template_path in templates:
         workflow = template_path.name.removesuffix(".md.tmpl")
         template_text = template_path.read_text()

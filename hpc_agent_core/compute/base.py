@@ -118,6 +118,19 @@ class SchedulerBackend(ABC):
         """Raise ValueError if spec violates a constraint this facility
         knows about. Called after apply_defaults(). No-op by default."""
 
+    def check_scheduler(self) -> bool:
+        """Verify this facility's scheduler is reachable, printing a
+        doctor-style line. Called by hpc_agent_core.doctor.
+
+        Each scheduler knows how to prove itself, so the backend owns this
+        rather than doctor guessing. Slurm has a version probe; PJM has no
+        --version flag on anything, so it checks its commands exist
+        instead. Default: report that no check is defined rather than
+        claiming success.
+        """
+        print(f"! scheduler: {type(self).__name__} defines no check_scheduler()")
+        return True
+
     def get_projects(self) -> list[dict]:
         """Projects/accounts the current user may charge here.
 

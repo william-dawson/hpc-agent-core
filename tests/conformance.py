@@ -272,6 +272,26 @@ def check_repo() -> None:
             else:
                 raise AssertionError(f"fs_rm did not refuse {bad!r}")
 
+    def generated_skills_are_wellformed():
+        """Every generated SKILL.md needs YAML frontmatter whose name
+        matches its directory, or the client cannot discover it.
+
+        Caught a real one: Fugaku-Agent's fugaku-build skill shipped with
+        no frontmatter at all — the only skill in that repo missing it, so
+        it had no name or description to be found by.
+        """
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parent.parent
+        skills = sorted((root / "plugins" / "hpc" / "skills").glob("*/SKILL.md"))
+        assert skills, "no generated skills found"
+        for path in skills:
+            text = path.read_text()
+            assert text.startswith("---\n"), f"{path.parent.name}: no YAML frontmatter"
+            front = text.split("---", 2)[1]
+            assert f"name: {path.parent.name}\n" in front, (
+                f"{path.parent.name}: frontmatter name does not match its directory")
+            assert "description:" in front, f"{path.parent.name}: no description"
+
     def every_facility_has_skill_notes():
         """A facility with no notes for a workflow still renders (a stub is
         substituted), but submitting-jobs is where a port's real value
@@ -287,6 +307,7 @@ def check_repo() -> None:
     check("unknown facility errors clearly, listing valid slugs", unknown_facility_errors_clearly)
     check("slugs are lowercase and safe", slugs_are_url_and_identifier_safe)
     check("fs_rm refuses home/root paths", fs_rm_refuses_dangerous_paths)
+    check("generated skills have matching frontmatter", generated_skills_are_wellformed)
     check("scheduler errors aren't mistaken for SSH failures", unreachable_detection_discriminates)
     check("every facility has real submitting-jobs notes", every_facility_has_skill_notes)
 

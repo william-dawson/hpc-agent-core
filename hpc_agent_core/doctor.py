@@ -17,12 +17,14 @@ server/hpc_mcp/doctor.py is the entry point:
         import sys
         sys.exit(main())
 
-Extending this: main() assumes every registered facility is Slurm-dialect
-(scheduler_probe="sinfo --version") — true for both facilities onboarded so
-far (Rikyu, RCCS-Cloud). A facility with a different scheduler (Grid Engine,
-PJM, ...) should not edit this file — call the individual check_* functions
-directly for that facility from your own small script instead, the same way
-a single machine repo's doctor.py always could.
+The scheduler check is delegated to each facility's own backend via
+SchedulerBackend.check_scheduler(), so a non-Slurm facility needs no change
+here: SlurmBackend uses a `sinfo --version` probe, PJMBackend checks its
+commands are on PATH (PJM has no version flag on anything). This is not
+cosmetic — an earlier hardcoded `sinfo --version` reported "slurm" as
+Fugaku's scheduler, because a Fugaku login node has Slurm installed for
+unrelated pre/post-processing work. The probe succeeded and the answer was
+wrong.
 """
 import json
 import sys
@@ -48,7 +50,23 @@ def check_config_file(facility: str) -> bool:
     return True
 
 
-def check_ssh(facility: str, ok_token: str, scheduler_probe: str, scheduler_name: str) -> bool:
+def check_ssh_scheduler_probe(facility: str, probe: str, name: str) -> bool:
+    """Run a scheduler probe whose output starts with the scheduler's name.
+
+    Fits Slurm (`sinfo --version` -> "slurm 24.05"). Schedulers with no
+    version flag use check_commands_on_path() instead — see
+    SchedulerBackend.check_scheduler(), which is what doctor actually calls.
+    """
+    from hpc_agent_core.middleware import run_command
+    out = run_command(facility, probe)
+    if out.strip().lower().startswith(name.lower()):
+        print(f"{OK} {name}: {out.strip()}")
+        return True
+    print(f"{FAIL} {name}: {out.strip()[:200]}")
+    return False
+
+
+def check_ssh(facility: str, ok_token: str, scheduler_probe: str = "", scheduler_name: str = "") -> bool:
     from hpc_agent_core.middleware import is_local_host, run_command
     host = config.ssh_host(facility)
     # "ssh (host): connected" would be misleading when host is localhost/
@@ -64,13 +82,9 @@ def check_ssh(facility: str, ok_token: str, scheduler_probe: str, scheduler_name
         print(f"{FAIL} {label}: unexpected response: {output[:200]}")
         return False
     print(f"{OK} {label}: connected to {output.strip().splitlines()[-1]}")
-
-    scheduler_out = run_command(facility, scheduler_probe)
-    if scheduler_out.strip().lower().startswith(scheduler_name.lower()):
-        print(f"{OK} {scheduler_name}: {scheduler_out.strip()}")
-        return True
-    print(f"{FAIL} {scheduler_name}: {scheduler_out.strip()[:200]}")
-    return False
+    if scheduler_probe:      # legacy direct callers; doctor uses the backend
+        return check_ssh_scheduler_probe(facility, scheduler_probe, scheduler_name)
+    return True
 
 
 def check_commands_on_path(facility: str, names, label: str) -> bool:
@@ -167,15 +181,25 @@ def check_docs_index(facility: str) -> bool:
     return True
 
 
-def check_facility(facility: str, scheduler_probe: str = "sinfo --version",
-                    scheduler_name: str = "slurm") -> bool:
-    """Run every check for one facility; return True iff all passed."""
+def check_facility(facility: str) -> bool:
+    """Run every check for one facility; return True iff all passed.
+
+    The scheduler check is delegated to that facility's own backend
+    (SchedulerBackend.check_scheduler), because schedulers differ in how
+    they can even be probed — and because a hardcoded `sinfo --version`
+    once reported "slurm" as Fugaku's scheduler, which is PJM. A Fugaku
+    login node happens to have Slurm installed for unrelated pre/post
+    work, so the probe succeeded and said something false.
+    """
+    from facilities.registry import get_backend
     fac = config.get_facility(facility)
     print(f"\n=== {fac.slug} ({fac.display_name}) ===")
     ok_token = f"{fac.slug}-doctor-ok"
+    ssh_ok = check_ssh(facility, ok_token)
     results = [
         check_config_file(facility),
-        check_ssh(facility, ok_token, scheduler_probe, scheduler_name),
+        ssh_ok,
+        get_backend(facility).check_scheduler() if ssh_ok else False,
         check_docs_guide_bundled(facility),
         check_docs_index(facility),
         check_embedding(facility),

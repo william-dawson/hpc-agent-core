@@ -530,6 +530,11 @@ class SlurmBackend(SchedulerBackend):
             job.status.message = f"{job.status.message} — {note}" if job.status.message else note
         return job
 
+    def check_scheduler(self) -> bool:
+        """`sinfo --version` prints "slurm <version>"."""
+        from hpc_agent_core.doctor import check_ssh_scheduler_probe
+        return check_ssh_scheduler_probe(self.facility, "sinfo --version", "slurm")
+
     def _allocation(self, scope: str, project_id: str, missing: str) -> dict:
         """One `sacctmgr show assoc` row as an IRI-style allocation dict.
 

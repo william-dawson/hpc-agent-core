@@ -24,6 +24,8 @@ JOB_DEFAULTS = {
     "rikyu": {"queue_name": "gpu", "gpus": 1},
     "hokusai": {"queue_name": "mpc"},
     "rccs-cloud": {"queue_name": "genoa"},
+    # Fugaku: PJM, no GPUs; queue_name is mandatory (no safe default).
+    "fugaku": {"queue_name": "small"},
 }
 
 
@@ -48,8 +50,15 @@ async def read_only_tier(hpc, docs_hpc) -> list[str]:
         assert fac, f"{slug}: empty facility facts"
         print(f"[{slug}] get_facility keys: {list(fac.keys())[:5]}")
 
-        projects = await hpc.get_projects(facility=slug)
-        print(f"[{slug}] get_projects: {[p['account'] for p in projects]}")
+        # Not every scheduler has per-project accounting — Fugaku's PJM has
+        # no sacctmgr at all. A clear "does not implement" is the correct
+        # answer there, not a failure; anything else still is.
+        try:
+            projects = await hpc.get_projects(facility=slug)
+            print(f"[{slug}] get_projects: {[p['account'] for p in projects]}")
+        except Exception as e:
+            assert "does not implement" in str(e), e
+            print(f"[{slug}] get_projects: not supported by this scheduler (expected)")
 
         docs = await docs_hpc.search_docs(facility=slug, query="how do I submit a job")
         assert docs.strip(), f"{slug}: empty docs result"
@@ -104,7 +113,20 @@ async def job_tier(hpc, slug: str, account: str | None) -> None:
         await asyncio.sleep(10)
     assert state == "completed", status
 
-    out = await hpc.fs_tail(facility=slug, path=f"slurm-{job_id}.out")
+    # Output filename is scheduler-specific: Slurm writes slurm-<id>.out in
+    # the workdir; PJM writes <jobname>.<id>.out in the submission directory.
+    workdir = (status["status"].get("meta_data") or {}).get("workdir", "") or ""
+    candidates = [f"{workdir.rstrip('/')}/slurm-{job_id}.out" if workdir else f"slurm-{job_id}.out",
+                  f"agent/jobs/{spec['name']}.{job_id}.out"]
+    out = ""
+    for path in candidates:
+        try:
+            out = await hpc.fs_tail(facility=slug, path=path)
+            print(f"[{slug}] output from {path}")
+            break
+        except Exception:
+            continue
+    assert out, f"no output found in any of {candidates}"
     print(f"[{slug}] output tail: {out.strip()!r}")
     assert "hub-smoke-ok" in out, out
 

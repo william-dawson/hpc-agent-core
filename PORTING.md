@@ -505,6 +505,30 @@ Commit the generated `plugins/hpc/skills/<slug>-*/SKILL.md` files too — CI
 runs the same script with `--check` and fails the PR if they're stale
 relative to your templates/notes.
 
+#### A workflow only your facility has
+
+Some machines have a workflow no other facility does. Fugaku's is
+`fugaku-build`: cross-compiling for A64FX is a real, substantial workflow
+there and meaningless on an x86 Slurm cluster. Adding a shared `build`
+template would give every other facility an empty skill.
+
+For that case, write the whole SKILL.md yourself at
+`facilities/<slug>/skills/<name>/SKILL.md`. It is copied verbatim into
+`plugins/hpc/skills/<slug>-<name>/` by the same generator — no template
+involved — with the scalar placeholders (`{{SLUG}}`, `{{DISPLAY_NAME}}`,
+`{{ENV_PREFIX}}`, `{{CONFIG_STEM}}`) still substituted, so it can say
+`facility="{{SLUG}}"` like any other skill. `{{FACILITY_NOTES}}` has no
+meaning here — the whole file is yours.
+
+It still needs YAML frontmatter whose `name:` matches the generated
+directory, i.e. `name: {{SLUG}}-<name>`. `tests/conformance.py` enforces
+this: Fugaku-Agent's original build skill shipped with no frontmatter at
+all — the only skill in that repo missing it — so it had no name or
+description for a client to discover it by.
+
+Use this sparingly. If two facilities would want the same workflow, it
+belongs in `templates/skills/` instead.
+
 **Do not edit `templates/skills/*.md.tmpl`** as part of a facility PR — a
 template is shared across every facility, so changing one is a deliberate,
 separate, cross-cutting change (reviewed and tested against every onboarded
