@@ -41,12 +41,13 @@ reason with:
 pjstat -s <job_id>
 ```
 
-and read both its `REASON` and its `RESOURCE GROUP` lines. The known cause
-of `GATE CHECK` here is an elapse limit of 5 minutes or less on `small`,
-which PJM rewrites into the `small-s5` sub-group — see
-`{{SLUG}}-submitting-jobs`. `RESOURCE GROUP` showing something other than
-what you asked for is the tell. `pjstat --history` returns nothing on this
-deployment, so `pjstat -s` is the only tool that answers this.
+and read its `REASON` line. The known cause of `GATE CHECK` here is a
+comma-separated `PJM_LLIO_GFSCACHE` value — see
+`{{SLUG}}-submitting-jobs`; `submit_job` now rejects that before
+submitting. Note `RESOURCE GROUP` may show a sub-group like `small-s5`
+rather than the `small` you asked for; that is normal and **not** a
+problem — healthy jobs run in it too. `pjstat --history` returns nothing
+on this deployment, so `pjstat -s` is the only tool that answers this.
 
 ## Quotas and limits
 

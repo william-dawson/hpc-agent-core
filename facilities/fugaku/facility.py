@@ -129,6 +129,19 @@ class FugakuBackend(PJMBackend):
                 "`pjacl --rg <name>` on the login node to confirm what this "
                 "account can actually submit to."
             )
+        volume = spec.attributes.custom_attributes.get("gfscache_volume", "")
+        if "," in volume:
+            raise ValueError(
+                f"PJM_LLIO_GFSCACHE must name a single volume, not {volume!r}. "
+                "A comma-separated value is accepted by pjsub and then fails "
+                "the pre-execution gate check minutes later — the job ends in "
+                "state ERR with REASON 'GATE CHECK', no output file and no "
+                "exit code, which is very hard to diagnose after the fact "
+                "(verified live). Use one volume, e.g. '/vol0004'. The syntax "
+                "for declaring several volumes is not documented in the "
+                "bundled guide or pjsub --help; confirm it with RIKEN rather "
+                "than guessing a separator."
+            )
         if spec.resources.gpus or spec.resources.gpu_cores_per_process:
             raise ValueError(
                 "Fugaku's compute nodes (A64FX) have no GPUs — leave "

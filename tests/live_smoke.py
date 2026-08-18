@@ -13,6 +13,7 @@ registered facility.
 """
 import argparse
 import asyncio
+import os
 import time
 
 from hpc_agent_core.client import connect, dev_params
@@ -25,10 +26,7 @@ JOB_DEFAULTS = {
     "hokusai": {"queue_name": "mpc"},
     "rccs-cloud": {"queue_name": "genoa"},
     # Fugaku: PJM, no GPUs; queue_name is mandatory (no safe default).
-    # duration matters here: PJM rewrites small + elapse<=5min into the
-    # sub-group "small-s5", which fails gate check on this account. 10
-    # minutes maps to a group that runs. Verified both ways.
-    "fugaku": {"queue_name": "small", "duration": 600},
+    "fugaku": {"queue_name": "small"},
 }
 
 
@@ -135,8 +133,16 @@ async def job_tier(hpc, slug: str, account: str | None) -> None:
 
 
 async def main(job_facility: str | None, account: str | None) -> None:
-    async with connect(dev_params("hpc_mcp", "hpc_server"), mode="live") as hpc, \
-               connect(dev_params("hpc_mcp", "docs_server"), mode="live") as docs_hpc:
+    # Pass the environment through explicitly. StdioServerParameters(env=None)
+    # gives the server subprocess a *minimal* environment, not this process's
+    # — so a `FACILITY_X=... python tests/live_smoke.py` override silently
+    # never reaches the server and it falls back to the config file. That cost
+    # a whole round of misdiagnosis on Fugaku: a run launched with
+    # FUGAKU_GFSCACHE=/vol0004 actually submitted the config file's value, and
+    # the resulting failure looked like it exonerated that setting.
+    env = dict(os.environ)
+    async with connect(dev_params("hpc_mcp", "hpc_server", env=env), mode="live") as hpc, \
+               connect(dev_params("hpc_mcp", "docs_server", env=env), mode="live") as docs_hpc:
         slugs = await read_only_tier(hpc, docs_hpc)
         if job_facility:
             assert job_facility in slugs, f"{job_facility!r} is not registered (have {slugs})"

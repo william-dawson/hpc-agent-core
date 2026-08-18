@@ -30,19 +30,23 @@ or `resources.gpu_cores_per_process`; both are rejected outright.
    `attributes.custom_attributes["gfscache_volume"]` (e.g. `"/vol0004"`)
    or rely on the configured default. Without it `pjsub` rejects the job.
 
-   **Don't request a 5-minute elapse on `small`.** PJM rewrites
-   `rscgrp=small` with `elapse` at or below 5 minutes into the sub-group
-   **`small-s5`** (visible as `RESOURCE GROUP` in `pjstat -s`), and that
-   sub-group fails the pre-execution gate check: `pjsub` accepts the job,
-   it queues, never runs, and ends in state `ERR` with
-   `REASON : GATE CHECK` and no output file at all. **Use 10 minutes or
-   more** for a short validation job on `small`.
+   **Declare exactly one volume.** A comma-separated value such as
+   `/vol0002,/vol0004` is accepted by `pjsub` at submission, queues
+   normally, and then fails the pre-execution gate check minutes later:
+   state `ERR`, `REASON : GATE CHECK`, **no output file and no exit code**.
+   That silent, delayed failure is why it is worth catching — `submit_job`
+   now rejects a comma-containing value up front.
 
-   Verified live, four jobs: two at `elapse=00:05:00` both ended
-   `ERR`/`GATE CHECK`; the same job at `00:10:00` ran to completion, both
-   with and without a `PJM_LLIO_GFSCACHE` declaration — so the LLIO volume
-   is **not** involved. `f-pt` has no such subdivision and runs fine at 5
-   minutes.
+   Verified live across eight jobs, varying one thing at a time: every job
+   carrying the comma value failed (at 5 *and* 10 minute elapse limits, so
+   wall time is irrelevant), and every job with a single volume or none
+   ran to completion (at 5, 6, 9 and 10 minutes). The `small-s5` sub-group
+   that appears in `pjstat -s` is a red herring — successful jobs run in
+   it too.
+
+   The correct syntax for declaring **more than one** volume is not
+   documented in the bundled guide or in `pjsub --help`; both only ever
+   show a single `/vol000N`. Ask RIKEN rather than guessing a separator.
 5. **Leave `stdout_path`/`stderr_path` unset** — PJM has no flag for
    redirecting them. Output always lands at `<name>.<job_id>.out`/`.err` in
    the submission directory. Set `spec.directory` if you want it elsewhere.
