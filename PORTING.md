@@ -106,9 +106,13 @@ actually running commands on the login node — a "zero-code smoke path"
 avail`, a real GPU allocation test) is a cheap way to confirm your
 assumptions *before* writing a line of port code, not after.
 
-- **Scheduler**: Slurm or Grid Engine? (Only these two have a ready-made
-  backend today — see §6. Something else needs its own `SchedulerBackend`
-  subclass, reusing `compute.base`'s helpers.)
+- **Scheduler**: Slurm or Grid Engine? Those two have a ready-made backend
+  in core (see §6). Anything else needs its own `SchedulerBackend` subclass
+  in your own facility directory, reusing `compute/base.py`'s helpers —
+  that is a normal outcome, not a failure: `facilities/fugaku/compute.py`
+  does exactly this for Fujitsu's PJM. Keep it in your facility until a
+  *second* machine shares the scheduler; only then is there enough evidence
+  to promote the dialect to core.
 - **Accounting** (Slurm only): does `sacct`/`sacctmgr` actually work, or is
   accounting disabled (`accounting_storage/none`)? Test with a real `sacct`
   call, not just `sacct --version` (the binary can exist and still be

@@ -140,7 +140,8 @@ you're about to onboard a facility.
 - `hpc_agent_core/` — the generic engine: `config.py` (the facility
   registry), `middleware.py` (the SSH execution layer — the only thing that
   talks to a cluster), `models.py` (PSI/J-style job models), `compute/`
-  (config-driven Slurm/Grid-Engine scheduler backends), `rag/` (the
+  (config-driven Slurm and Grid-Engine backends; a facility whose
+  scheduler is neither brings its own — see `facilities/fugaku/`), `rag/` (the
   docs-search pipeline), `docs_server.py`, `doctor.py`, `serving.py`,
   `mcp_server.py`.
 - `facilities/<slug>/` — one directory per onboarded machine: `facility.py`
