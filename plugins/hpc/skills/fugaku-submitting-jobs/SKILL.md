@@ -40,15 +40,19 @@ or `resources.gpu_cores_per_process`; both are rejected outright.
    `attributes.custom_attributes["gfscache_volume"]` (e.g. `"/vol0004"`)
    or rely on the configured default. Without it `pjsub` rejects the job.
 
-   **Unresolved: `GATE CHECK` rejections.** During this port, trivial
-   1-node `small` jobs were accepted by `pjsub` and then failed the
-   pre-execution gate check — queued for a while, never run, ending in PJM
-   state `ERR` with `REASON : GATE CHECK` and no output file. Observed with
-   both a comma-separated `PJM_LLIO_GFSCACHE` and a single volume, so the
-   volume syntax is **not** the established cause. The cause is not yet
-   identified; it may be account- or project-specific. If a job ends in
-   `ERR` with no output, read `pjstat -s <job_id>` for the `REASON` line
-   before assuming anything about the script.
+   **Don't request a 5-minute elapse on `small`.** PJM rewrites
+   `rscgrp=small` with `elapse` at or below 5 minutes into the sub-group
+   **`small-s5`** (visible as `RESOURCE GROUP` in `pjstat -s`), and that
+   sub-group fails the pre-execution gate check: `pjsub` accepts the job,
+   it queues, never runs, and ends in state `ERR` with
+   `REASON : GATE CHECK` and no output file at all. **Use 10 minutes or
+   more** for a short validation job on `small`.
+
+   Verified live, four jobs: two at `elapse=00:05:00` both ended
+   `ERR`/`GATE CHECK`; the same job at `00:10:00` ran to completion, both
+   with and without a `PJM_LLIO_GFSCACHE` declaration — so the LLIO volume
+   is **not** involved. `f-pt` has no such subdivision and runs fine at 5
+   minutes.
 5. **Leave `stdout_path`/`stderr_path` unset** — PJM has no flag for
    redirecting them. Output always lands at `<name>.<job_id>.out`/`.err` in
    the submission directory. Set `spec.directory` if you want it elsewhere.

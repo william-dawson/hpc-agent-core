@@ -25,7 +25,10 @@ JOB_DEFAULTS = {
     "hokusai": {"queue_name": "mpc"},
     "rccs-cloud": {"queue_name": "genoa"},
     # Fugaku: PJM, no GPUs; queue_name is mandatory (no safe default).
-    "fugaku": {"queue_name": "small"},
+    # duration matters here: PJM rewrites small + elapse<=5min into the
+    # sub-group "small-s5", which fails gate check on this account. 10
+    # minutes maps to a group that runs. Verified both ways.
+    "fugaku": {"queue_name": "small", "duration": 600},
 }
 
 
@@ -78,7 +81,7 @@ async def job_tier(hpc, slug: str, account: str | None) -> None:
     resources = {"node_count": 1, "processes_per_node": 1}
     if defaults.get("gpus"):
         resources["gpus"] = defaults["gpus"]
-    attributes = {"duration": 300}
+    attributes = {"duration": defaults.get("duration", 300)}
     if defaults.get("queue_name"):
         attributes["queue_name"] = defaults["queue_name"]
     if account:
