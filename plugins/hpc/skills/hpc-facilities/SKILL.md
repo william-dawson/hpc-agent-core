@@ -9,7 +9,8 @@ This plugin serves every onboarded facility through one MCP server. Every
 tool takes an explicit `facility` argument (a slug like `"rikyu"`) as its
 first parameter — there is no default facility. Once you know the facility,
 its own skill (`<slug>-submitting-jobs`, `<slug>-monitoring-jobs`,
-`<slug>-configuring`, `<slug>-demo`, `<slug>-reproducing`) has the real,
+`<slug>-configuring`, `<slug>-remote-command`, `<slug>-demo`,
+`<slug>-reproducing`) has the real,
 facility-specific how-to; this skill only covers picking the slug.
 
 ## Resolve the facility first

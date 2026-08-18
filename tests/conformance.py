@@ -17,8 +17,10 @@ belongs in tests/live_smoke.py instead.
 import contextlib
 import os
 import pathlib
+import shlex
 import sys
 import traceback
+from unittest.mock import patch
 
 import hpc_mcp  # noqa: F401 -- registers every facility
 from hpc_agent_core import config
@@ -158,6 +160,41 @@ def check_facility(slug: str) -> None:
         assert backend.facility == slug, \
             f"backend.facility is {backend.facility!r}, expected {slug!r}"
 
+    def machine_resource_limits_are_enforced():
+        """Exercise deterministic limits encoded by the facility hook.
+
+        Only RIKYU currently has a complete job-resource table precise
+        enough for these checks; facilities whose limits vary by project or
+        live partition intentionally do not guess here.
+        """
+        if slug != "rikyu":
+            return
+        invalid_specs = [
+            {"gpus": 5},
+            {"gpus": 8, "node_count": 1},
+            {"gpus": 1, "cpu_cores_per_process": 37},
+            {"gpus": 1, "memory": 401 * 1024**3},
+        ]
+        for resources in invalid_specs:
+            spec = JobSpec(
+                executable="true", resources=resources,
+                attributes={"queue_name": "gpu"},
+            )
+            try:
+                backend.validate_spec(spec)
+            except ValueError:
+                continue
+            raise AssertionError(f"RIKYU accepted invalid resources: {resources}")
+
+        wrong_queue = JobSpec(
+            executable="true", attributes={"queue_name": "not-gpu"},
+        )
+        try:
+            backend.validate_spec(wrong_queue)
+        except ValueError:
+            return
+        raise AssertionError("RIKYU accepted a nonexistent partition")
+
     def setup_directions_are_actionable():
         """What a user gets when they say "I want to use this machine" and
         nothing is configured. It has to stand on its own: the agent may
@@ -203,6 +240,9 @@ def check_facility(slug: str) -> None:
     check("defaults -> validate -> render, or an actionable error", defaults_then_validate_then_render)
     check("same with no user config (a brand-new user)", defaults_then_validate_then_render_unconfigured)
     check("a defaulted queue reaches the script", rendered_script_has_a_queue)
+    if slug == "rikyu":
+        check("deterministic machine resource limits are enforced",
+              machine_resource_limits_are_enforced)
 
 
 # --- repo-wide checks ----------------------------------------------------
@@ -293,6 +333,20 @@ def check_repo() -> None:
                 f"{path.parent.name}: frontmatter name does not match its directory")
             assert "description:" in front, f"{path.parent.name}: no description"
 
+        remote_skills = sorted((root / "plugins" / "hpc" / "skills").glob(
+            "*-remote-command/SKILL.md"
+        ))
+        assert len(remote_skills) == len(config.list_facilities()), (
+            "every facility needs a generated remote-command skill"
+        )
+        for path in remote_skills:
+            text = path.read_text()
+            assert "May I run these" in text, f"{path.parent.name}: no permission example"
+            assert "Prefer multiple focused calls" in text, (
+                f"{path.parent.name}: no short-command guidance"
+            )
+            assert "Changed state:" in text, f"{path.parent.name}: no execution recap example"
+
     def job_name_cannot_inject_into_scripts():
         """spec.name is rendered unquoted into every scheduler's directive
         line and used to build the job script's filename, so it is a real
@@ -328,6 +382,100 @@ def check_repo() -> None:
             except Exception:
                 continue
             raise AssertionError(f"control character accepted in {label}")
+
+        # duration is both a directive-line field on every scheduler and a
+        # login-node shell argument for Fugaku's pjalter update path.
+        for bad in ["00:01:00\nrm -rf /", '00:01:00"; touch /tmp/pwned; #',
+                    "not-a-duration", "00:60:00", True, 0, -1]:
+            try:
+                JobSpec.model_validate({
+                    "name": "t", "executable": "x",
+                    "attributes": {"duration": bad},
+                })
+            except Exception:
+                continue
+            raise AssertionError(f"unsafe/invalid duration accepted: {bad!r}")
+
+    def resource_quantities_are_positive():
+        invalid = [
+            {"node_count": 0}, {"node_count": -1},
+            {"process_count": 0}, {"process_count": -1},
+            {"processes_per_node": 0}, {"cpu_cores_per_process": 0},
+            {"gpu_cores_per_process": 0}, {"gpus": -1}, {"memory": 0},
+        ]
+        invalid += [
+            {field: True} for field in (
+                "node_count", "process_count", "processes_per_node",
+                "cpu_cores_per_process", "gpu_cores_per_process", "gpus", "memory",
+            )
+        ]
+        for resources in invalid:
+            try:
+                JobSpec.model_validate({"executable": "x", "resources": resources})
+            except Exception:
+                continue
+            raise AssertionError(f"invalid resource quantity accepted: {resources!r}")
+
+    def process_count_is_an_alternative_to_ppn():
+        from hpc_agent_core.compute.slurm import SlurmBackend
+
+        backend = SlurmBackend("test", nodes_always_explicit=True)
+        total_only = JobSpec(
+            executable="hostname", resources={"process_count": 8},
+            attributes={"queue_name": "test"},
+        )
+        script = backend.render_script(total_only)
+        assert "#SBATCH --ntasks=8" in script
+        assert "#SBATCH --ntasks-per-node" not in script, script
+
+        both = JobSpec(
+            executable="hostname",
+            resources={"process_count": 8, "processes_per_node": 4},
+            attributes={"queue_name": "test"},
+        )
+        script = backend.render_script(both)
+        assert "#SBATCH --ntasks=8" in script
+        assert "#SBATCH --ntasks-per-node=4" in script
+
+    def fugaku_update_quotes_duration_as_one_argument():
+        from facilities.fugaku.compute import PJMBackend
+
+        backend = PJMBackend("fugaku")
+        unsafe = '01:02:03"; touch /tmp/pwned; #'
+        # Bypass the generic validator deliberately to verify the backend's
+        # independent defense in depth. Normal MCP input cannot construct
+        # this model after the duration fix above.
+        spec = JobSpec.model_construct(
+            executable="unused",
+            resources=ResourceSpec(),
+            attributes=JobAttributes.model_construct(duration=unsafe),
+        )
+        commands = []
+
+        def record(_facility, command):
+            commands.append(command)
+            return ""
+
+        with patch("facilities.fugaku.compute.run_command", record), \
+                patch.object(backend, "get_statuses", return_value=[]):
+            try:
+                backend.update("123", spec)
+            except ValueError:
+                pass  # expected: the mocked status lookup finds no job
+        assert len(commands) == 1, commands
+        assert shlex.split(commands[0]) == ["pjalter", "-L", f"elapse={unsafe}", "123"]
+
+    def docs_embedding_client_is_not_cached():
+        from hpc_agent_core.docs_server import _index
+
+        index = _index("rikyu")
+        assert index._embed_client is None, (
+            "the cached docs index captured an embedding client/API key"
+        )
+        token = object()
+        with patch.object(index, "_vector_search", return_value=[]) as vector:
+            index.search("anything", embed_client=token)
+        vector.assert_called_once_with("anything", 5, token)
 
     def a_broken_facility_cannot_deny_the_server():
         """One facility failing to import must not take down the others.
@@ -410,6 +558,13 @@ def check_repo() -> None:
     check("slugs are lowercase and safe", slugs_are_url_and_identifier_safe)
     check("fs_rm refuses home/root paths", fs_rm_refuses_dangerous_paths)
     check("job names cannot inject into scripts", job_name_cannot_inject_into_scripts)
+    check("resource quantities are positive", resource_quantities_are_positive)
+    check("process_count does not conflict with default tasks-per-node",
+          process_count_is_an_alternative_to_ppn)
+    check("Fugaku update quotes duration as one argument",
+          fugaku_update_quotes_duration_as_one_argument)
+    check("docs embedding credentials are refreshed per search",
+          docs_embedding_client_is_not_cached)
     check("a broken facility cannot deny the server", a_broken_facility_cannot_deny_the_server)
     check("facility data ships in a wheel", facility_data_is_declared_as_package_data)
     check("generated skills have matching frontmatter", generated_skills_are_wellformed)

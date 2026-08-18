@@ -74,6 +74,8 @@ jobs:
       # anything just regenerated.
       - name: Conformance (every cluster, offline)
         run: python tests/conformance.py
+      - name: Reproducible notebook client (real MCP stdio, offline)
+        run: python tests/notebook_client.py
       - name: A built wheel actually contains each cluster's data
         run: |
           python -m pip install --quiet build

@@ -27,7 +27,10 @@ from hpc_agent_core.rag.store import DocsIndex
 @lru_cache(maxsize=None)
 def _index(facility: str) -> DocsIndex:
     fac = config.get_facility(facility)
-    return DocsIndex(config.docs_index_dir(fac), embed_client=get_client(fac))
+    # Cache the immutable packaged corpus, not its credential-bearing client.
+    # search_docs refreshes the client below so a key added/rotated in the
+    # user config takes effect without restarting this MCP server.
+    return DocsIndex(config.docs_index_dir(fac), embed_client=None)
 
 
 def _format(result: dict) -> str:
@@ -71,7 +74,9 @@ def build(mcp: MCPServer) -> MCPServer:
             query: Natural-language question or keywords.
             top_k: Number of sections to return.
         """
-        results = _index(facility).search(query, top_k=top_k)
+        results = _index(facility).search(
+            query, top_k=top_k, embed_client=get_client(facility),
+        )
         if not results:
             return "No matching documentation sections found."
         sections = "\n\n---\n\n".join(_format(r) for r in results)

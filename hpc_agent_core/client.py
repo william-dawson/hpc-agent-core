@@ -101,25 +101,30 @@ def pinned_params(
     script: str,
     *,
     ref: str = "main",
-    subdirectory: str = "server",
+    subdirectory: str | None = None,
     env: dict[str, str] | None = None,
 ) -> StdioServerParameters:
     """StdioServerParameters for a pinned-release server, launched exactly the
     way a plugin's own `.mcp.json` launches it:
-    `uv tool run --quiet --from git+<remote>@<ref>#subdirectory=<subdirectory> <script>`.
+    `uv tool run --quiet --from git+<remote>@<ref> <script>`. Pass
+    ``subdirectory="server"`` for older repositories whose Python project
+    lives below the repository root.
 
-    `remote` is the git remote URL (e.g.
-    "https://github.com/RIKEN-RCCS/Rikyu-Agent.git"); `script` is the
-    console-script entry point from that repo's `server/pyproject.toml`
-    (e.g. "rikyu-hpc-mcp"). Pin `ref` to a tag or commit, not `main` — a
-    reproduction notebook meant to still work in six months shouldn't
-    silently pick up whatever `main` has become by then.
+    `remote` is the git remote URL; `script` is the console-script entry
+    point. Pin `ref` to a tag or commit, not `main` — a reproduction
+    notebook meant to still work in six months shouldn't silently pick up
+    whatever `main` has become by then. For example, an older per-machine
+    repository such as RIKEN-RCCS/Rikyu-Agent also needs
+    ``subdirectory="server"`` because its pyproject.toml is not at the root.
     """
+    source = f"git+{remote}@{ref}"
+    if subdirectory:
+        source += f"#subdirectory={subdirectory}"
     return StdioServerParameters(
         command="uv",
         args=[
             "tool", "run", "--quiet", "--from",
-            f"git+{remote}@{ref}#subdirectory={subdirectory}", script,
+            source, script,
         ],
         env=env,
     )
@@ -264,8 +269,8 @@ class HpcClient:
 
         return method
 
-    async def fs_download(self, path: str, local_path: str, **kwargs: Any) -> Any:
-        """Download `path` to `local_path`.
+    async def fs_download(self, remote_path: str, local_path: str, **kwargs: Any) -> Any:
+        """Download `remote_path` to `local_path`.
 
         Overridden rather than left to the generic `__getattr__` path
         because the generic cache only stores a call's *return value*
@@ -282,13 +287,13 @@ class HpcClient:
 
         `local_path` is deliberately excluded from the cache key — it's a
         destination for *this* call, not part of what identifies the
-        content being fetched (`path` + any other kwargs are). Downloading
+        content being fetched (`remote_path` + any other kwargs are). Downloading
         the same remote file to a different local path on a later run is
         still a cache hit, materialized at the new location; the returned
         metadata's `local_path` is updated to match rather than echoing
         wherever the recording run happened to put it.
         """
-        key = {"path": path, **kwargs}
+        key = {"remote_path": remote_path, **kwargs}
         if self._cache is not None and self._mode != "live":
             if self._cache.has("fs_download", key) and self._cache.has_blob("fs_download", key):
                 Path(local_path).parent.mkdir(parents=True, exist_ok=True)
@@ -299,11 +304,14 @@ class HpcClient:
                 return cached_result
             if self._mode == "replay":
                 raise CacheMiss(
-                    f"No cached file for fs_download({path!r}) and mode is 'replay'. "
+                    f"No cached file for fs_download({remote_path!r}) and mode is 'replay'. "
                     "Re-run with mode='lazy' or 'live' once to record it."
                 )
         result = payload(
-            await call(self._session, "fs_download", {"path": path, "local_path": local_path, **kwargs})
+            await call(
+                self._session, "fs_download",
+                {"remote_path": remote_path, "local_path": local_path, **kwargs},
+            )
         )
         if self._cache is not None and self._mode != "replay":
             self._cache.put("fs_download", key, result)

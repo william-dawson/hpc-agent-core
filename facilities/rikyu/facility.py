@@ -99,14 +99,54 @@ class RikyuBackend(SlurmBackend):
         cores, memory) follows deterministically from this count, so a bad
         count is worth catching before submission rather than as a
         confusing sbatch-time rejection."""
+        if spec.attributes.queue_name != "gpu":
+            raise ValueError(
+                "RIKYU has exactly one partition, 'gpu'. Set "
+                "spec.attributes.queue_name to 'gpu' or leave it blank so "
+                "apply_defaults can supply it."
+            )
+
         gpus = spec.resources.gpus or spec.resources.gpu_cores_per_process
         if not gpus:
             return
-        supported = config.load_facts(SLUG)["job_resources"]["supported_gpu_counts"]
+        facts = config.load_facts(SLUG)["job_resources"]
+        supported = facts["supported_gpu_counts"]
         if gpus not in supported:
             raise ValueError(
                 f"RIKYU only accepts these GPU counts per job: {supported}. Got {gpus}."
             )
+        limits = next(row for row in facts["table"] if row["gpus"] == gpus)
+        resources = spec.resources
+        if ("node_count" in resources.model_fields_set
+                and resources.node_count != limits["nodes"]):
+            raise ValueError(
+                f"RIKYU derives {limits['nodes']} node(s) from a {gpus}-GPU "
+                f"request, but node_count={resources.node_count} was set. "
+                "Use that derived node count or omit node_count and let Slurm "
+                "place the job."
+            )
+        if resources.cpu_cores_per_process:
+            tasks_per_node = resources.processes_per_node
+            if resources.process_count:
+                tasks_per_node = (
+                    resources.process_count + limits["nodes"] - 1
+                ) // limits["nodes"]
+            cores_per_node = resources.cpu_cores_per_process * tasks_per_node
+            if cores_per_node > limits["max_cpu_cores_per_node"]:
+                raise ValueError(
+                    f"A {gpus}-GPU RIKYU job allows at most "
+                    f"{limits['max_cpu_cores_per_node']} CPU cores per node; "
+                    f"this spec requests {cores_per_node}. Reduce "
+                    "cpu_cores_per_process or processes_per_node."
+                )
+        if resources.memory:
+            max_bytes = limits["max_mem_per_node_gb"] * 1024**3
+            if resources.memory > max_bytes:
+                raise ValueError(
+                    f"A {gpus}-GPU RIKYU job allows at most "
+                    f"{limits['max_mem_per_node_gb']} GiB per node. Reduce "
+                    "resources.memory or request more GPUs."
+                )
 
 
 BACKEND = RikyuBackend(

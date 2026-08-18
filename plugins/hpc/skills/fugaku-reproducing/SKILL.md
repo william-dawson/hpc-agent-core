@@ -43,7 +43,7 @@ its own root.
 ```python
 job = hpc.submit_job(facility="fugaku", spec={...})   # whatever the real spec was
 status = hpc.wait_for_job(job["job_id"], facility="fugaku")
-result = hpc.fs_download(facility="fugaku", path="...", local_path="./downloads/result.json")
+result = hpc.fs_download(facility="fugaku", remote_path="...", local_path="./downloads/result.json")
 
 hpc.close()
 ```

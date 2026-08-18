@@ -1,0 +1,81 @@
+---
+name: hokusai-remote-command
+description: Use when the user wants to run one or more shell commands on HOKUSAI BigWaterfall2 (HBW2)'s login node, or when another workflow needs run_command_on_cluster for a live check not covered by a safer typed tool. Requires an exact command preview and explicit user permission before execution.
+user-invocable: true
+---
+
+# Running login-node commands on HOKUSAI BigWaterfall2 (HBW2)
+
+Every call in this skill uses `facility="hokusai"`.
+`run_command_on_cluster` is an escape hatch: it can do anything the user's
+login shell can do and bypasses the typed tools' validation and deletion
+guards. Use a specific tool such as `fs_view`, `get_resources`, or
+`submit_job` whenever one fits.
+
+## Before running anything: sketch, show, ask, and wait
+
+Before **every** `run_command_on_cluster` call or approved sequence:
+
+1. Sketch the proposed work in plain language.
+2. Show each exact command in a numbered list, including the facility.
+3. State whether the commands are read-only and name any files, jobs, or
+   configuration they may change.
+4. Ask for explicit permission and wait for the user's answer. A general
+   request such as "investigate the build" is not permission for commands
+   the user has not seen. Permission covers only the commands shown; preview
+   and ask again before adding or materially changing one.
+
+Use wording like this:
+
+> I propose three short, read-only checks on HOKUSAI BigWaterfall2 (HBW2):
+>
+> 1. `pwd` — confirm the login directory.
+> 2. `module avail cuda 2>&1 | head -40` — inspect the available CUDA modules.
+> 3. `sinfo --summarize` — check current partition occupancy.
+>
+> These commands will not modify files or submit/cancel jobs. May I run these
+> commands on HOKUSAI BigWaterfall2 (HBW2)?
+
+Do not execute the commands in the same response as that question. Wait for
+the user to approve them.
+
+## Prefer several short commands
+
+Prefer multiple focused calls over one long shell program joined with many
+`;`, `&&`, or `||` operators. Run them in order and inspect each result before
+continuing. This makes failures attributable, keeps the user's approval
+meaningful, and avoids later steps running on a false assumption.
+
+A short pipeline that performs one coherent observation is fine, such as
+`module avail cuda 2>&1 | head -40`. A tightly coupled operation may also use
+one small compound command, such as `cd project && make test`, when splitting
+it would change its meaning.
+
+Each call starts a fresh login shell in `$HOME`: working-directory changes,
+loaded modules, shell variables, and activated environments do **not** persist
+to the next call. Use explicit paths or repeat the minimal setup in a later
+command. If a workflow genuinely needs a long stateful script or heavy
+computation, create and submit a job instead of running it on the login node.
+
+## After running: report what actually happened
+
+Give the user a compact execution sketch based on the real outputs, including
+what ran, the important result, and what changed. Do not merely paste raw
+terminal output.
+
+For example:
+
+> Done on HOKUSAI BigWaterfall2 (HBW2):
+>
+> - Confirmed the login directory is `/home/alice`.
+> - Found CUDA 12.6 and 12.8 modules; no module was loaded or changed.
+> - The `gpu` partition currently has 18 idle nodes.
+> - Changed state: none. No files were written and no jobs were submitted.
+
+If a command fails, say which command failed and stop before dependent steps.
+Explain the failure and propose any new command separately; show it and ask
+permission before running it.
+
+Never expose secrets in a command or its recap. For destructive or otherwise
+irreversible commands, identify the exact targets and consequences especially
+clearly; prefer the guarded typed tool when one exists.

@@ -79,11 +79,12 @@ class DocsIndex:
             norms = np.linalg.norm(matrix, axis=1, keepdims=True)
             self._embeddings = matrix / np.maximum(norms, 1e-12)
 
-    def search(self, query: str, top_k: int = 5) -> list[dict]:
+    def search(self, query: str, top_k: int = 5, embed_client=None) -> list[dict]:
         """Return the top_k chunks with a 'score' and 'method' field added."""
-        if self._embeddings is not None and self._embed_client is not None:
+        client = embed_client if embed_client is not None else self._embed_client
+        if self._embeddings is not None and client is not None:
             try:
-                return self._vector_search(query, top_k, self._embed_client)
+                return self._vector_search(query, top_k, client)
             except Exception:
                 pass  # endpoint down — degrade to keyword search
         return self._keyword_search(query, top_k)

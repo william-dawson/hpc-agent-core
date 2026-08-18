@@ -251,9 +251,16 @@ class SlurmBackend(SchedulerBackend):
         if self.nodes_always_explicit or res.node_count != 1:
             lines.append(f"#SBATCH --nodes={res.node_count}")
 
-        lines.append(f"#SBATCH --ntasks-per-node={res.processes_per_node}")
         if res.process_count:
             lines.append(f"#SBATCH --ntasks={res.process_count}")
+            # process_count is the PSI/J alternative to node_count ×
+            # processes_per_node. Only constrain both when the caller
+            # explicitly supplied both; otherwise the default ppn=1 would
+            # contradict requests such as process_count=8 on one node.
+            if "processes_per_node" in res.model_fields_set:
+                lines.append(f"#SBATCH --ntasks-per-node={res.processes_per_node}")
+        else:
+            lines.append(f"#SBATCH --ntasks-per-node={res.processes_per_node}")
         if res.cpu_cores_per_process:
             lines.append(f"#SBATCH --cpus-per-task={res.cpu_cores_per_process}")
         if res.exclusive_node_use:

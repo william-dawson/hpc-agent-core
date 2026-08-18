@@ -255,10 +255,22 @@ def run_command_on_cluster(facility: str, command: str) -> str:
     and reach for this only for things no tool covers (`module avail`,
     quota checks, attaching to a running job for diagnostics).
 
-    Before calling this, show the user the exact command (or script) and a
-    one-line explanation of what it does, then call it — skip the preview
-    only if the user explicitly asked to just run something. Do not run
-    heavy computation on the login node — submit a job instead.
+    Before calling this, sketch the proposed work, show the exact command(s)
+    and what each will do, state whether they change anything, then ask for
+    explicit permission and wait for the user's answer. Permission covers
+    only the commands shown; preview and ask again before adding or
+    materially changing one.
+
+    Prefer several short, focused calls over one long command joined with
+    many `;`, `&&`, or `||` operators. Inspect each result before continuing
+    so a failed assumption cannot cascade into later steps. A short pipeline
+    that performs one coherent check is fine. Each call starts a fresh login
+    shell in `$HOME`, so `cd`, loaded modules, variables, and activated
+    environments do not persist between calls.
+
+    Afterward, summarize what actually ran, the important results, and any
+    state that changed; do not merely paste raw output. Do not run heavy
+    computation on the login node — submit a job instead.
     """
     return run_command(facility, command)
 

@@ -133,14 +133,37 @@ class ResourceSpec(BaseModel):
     or must be set explicitly is a per-machine SchedulerBackend concern —
     see that machine's compute/ module and config.
     """
-    node_count: int = 1
-    process_count: int | None = Field(None, description="Total processes (alternative to processes_per_node × node_count)")
-    processes_per_node: int = 1
-    cpu_cores_per_process: int | None = None
-    gpu_cores_per_process: int | None = Field(None, description="PSI/J standard GPU field; prefer gpus where a machine supports it")
-    gpus: int = Field(0, description="Total GPUs requested for the job (machine-specific extension); 0 means no GPU request")
+    node_count: int = Field(1, gt=0)
+    process_count: int | None = Field(
+        None, gt=0,
+        description="Total processes (alternative to processes_per_node × node_count)",
+    )
+    processes_per_node: int = Field(1, gt=0)
+    cpu_cores_per_process: int | None = Field(None, gt=0)
+    gpu_cores_per_process: int | None = Field(
+        None, gt=0,
+        description="PSI/J standard GPU field; prefer gpus where a machine supports it",
+    )
+    gpus: int = Field(
+        0, ge=0,
+        description="Total GPUs requested for the job (machine-specific extension); 0 means no GPU request",
+    )
     exclusive_node_use: bool = Field(False, description="Request exclusive node allocation (--exclusive)")
-    memory: int | None = Field(None, description="Memory per node in bytes (maps to --mem)")
+    memory: int | None = Field(None, gt=0, description="Memory per node in bytes (maps to --mem)")
+
+    @field_validator(
+        "node_count", "process_count", "processes_per_node",
+        "cpu_cores_per_process", "gpu_cores_per_process", "gpus", "memory",
+        mode="before",
+    )
+    @classmethod
+    def _reject_boolean_quantity(cls, value, info):
+        # bool is a subclass of int in Python, and Pydantic otherwise turns
+        # JSON true/false into 1/0 for integer fields. Resource quantities
+        # must be actual numbers, not accidentally-accepted flags.
+        if isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be an integer, not a boolean")
+        return value
 
 
 class JobAttributes(BaseModel):
@@ -160,6 +183,38 @@ class JobAttributes(BaseModel):
     custom_attributes: dict[str, str] = Field(default_factory=dict)
     scheduler: Scheduler | None = Field(None, description="Override which SchedulerBackend handles this job, on a machine with more than one; None means the machine's tool layer decides (e.g. from queue_name)")
     parallel_env: str = Field("smp", description="Grid Engine parallel environment (-pe); ignored by Slurm backends")
+
+    @field_validator("duration", mode="before")
+    @classmethod
+    def _valid_duration(cls, value: int | str) -> int | str:
+        """Accept positive seconds or a scheduler-neutral time string.
+
+        Besides catching invalid requests early, this is a command/script
+        injection boundary: duration is rendered into every scheduler's
+        directive block, and PJM's update verb also passes it to a login-node
+        shell command.
+        """
+        if isinstance(value, bool):
+            raise ValueError("duration must be an integer or time string, not a boolean")
+        if isinstance(value, int):
+            if value <= 0:
+                raise ValueError("duration in seconds must be greater than zero")
+            return value
+        if not isinstance(value, str):
+            raise ValueError("duration must be integer seconds or a time string")
+
+        match = re.fullmatch(r"(?:(\d+)-)?(\d+):([0-5]\d):([0-5]\d)", value)
+        if not match:
+            raise ValueError(
+                "duration must be positive integer seconds or HH:MM:SS / "
+                "D-HH:MM:SS (minutes and seconds must be 00-59)"
+            )
+        days, hours, minutes, seconds = match.groups()
+        if days is not None and int(hours) > 23:
+            raise ValueError("the HH component of D-HH:MM:SS must be 00-23")
+        if int(days or 0) == int(hours) == int(minutes) == int(seconds) == 0:
+            raise ValueError("duration must be greater than zero")
+        return value
 
     @field_validator("queue_name", "account", "reservation_id", "parallel_env")
     @classmethod

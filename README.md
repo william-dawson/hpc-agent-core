@@ -75,6 +75,22 @@ Every line should read `✓`, except possibly the embedding endpoint — that
 one falls back to keyword search and is not blocking. Add a cluster name to
 check just that one.
 
+## Make the work reproducible
+
+An agent session is a good way to figure something out, but the result
+should not live only in the conversation. When you have a workflow worth
+keeping, tell the agent:
+
+> Turn what we just did into a reproducible notebook.
+
+Every cluster has a reproducing skill for this. The agent writes a short,
+linear Jupyter notebook that calls the same tools it used during the
+session, runs it once for real, and caches the results (including downloaded
+files). Later you can run it live again, reuse the cache while editing, or
+replay the whole notebook offline without a cluster account. Keep the
+notebook and its `.hpc_cache/` directory together if you want to share or
+commit the result.
+
 ## Adding a cluster you have access to?
 
 This project is an exercise in Specification Driven Development. As we
@@ -126,6 +142,7 @@ repo-wide rather than a per-machine template.
 python3 -m venv .venv && .venv/bin/pip install -e .
 
 .venv/bin/python tests/conformance.py             # offline, every cluster
+.venv/bin/python tests/notebook_client.py         # offline, notebook client/cache over MCP
 .venv/bin/python tests/live_smoke.py              # read-only, needs ssh
 .venv/bin/python tests/live_smoke.py --job rikyu  # + submits a real job
 ```

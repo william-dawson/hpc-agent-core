@@ -377,7 +377,9 @@ class PJMBackend(SchedulerBackend):
             )
         run_command(
             self.facility,
-            f'pjalter -L "elapse={duration_to_hms(spec.attributes.duration)}" {shlex.quote(job_id)}',
+            "pjalter -L "
+            + shlex.quote(f"elapse={duration_to_hms(spec.attributes.duration)}")
+            + f" {shlex.quote(job_id)}",
         )
         jobs = self.get_statuses([job_id])
         if not jobs:
