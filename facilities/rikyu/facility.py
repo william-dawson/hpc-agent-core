@@ -13,7 +13,15 @@ RIKYU only accepts a fixed set of per-job GPU counts (see rikyu_config.json's
 job_resources.supported_gpu_counts) and has exactly one partition, "gpu" —
 both facility-specific enough to live here as SchedulerBackend hook
 overrides rather than in the generic server.
+
+A user in more than one RIKYU project must also name which project to
+charge; see _default_account() below. HBW2's facility.py solves the same
+problem with similar-looking code — that duplication is deliberate (see
+PORTING.md, "Where does this go?"): the two differ in their env var, their
+config keys, and when the account is mandatory, and spelling each out
+plainly here beats a shared abstraction that hides those differences.
 """
+import os
 from pathlib import Path
 
 from hpc_agent_core import config
@@ -36,23 +44,38 @@ FACILITY = config.register_facility(
 )
 
 
+def _default_account() -> str | None:
+    """The RIKYU project to charge when a job doesn't name one.
+
+    Resolved RIKYU_ACCOUNT > the user config's `defaults.account`. Unlike
+    HBW2 this is *conditionally* required, not always: a user in exactly
+    one project may omit --account entirely and sbatch picks it. A user in
+    several gets a hard rejection instead ("You belong to multiple
+    projects, so the project to be charged must be specified explicitly" —
+    observed live), which is why the default is worth resolving here.
+    """
+    cfg = config.file_config(SLUG)
+    return (os.environ.get(f"{FACILITY.env_prefix}_ACCOUNT")
+            or (cfg.get("defaults") or {}).get("account"))
+
+
 class RikyuBackend(SlurmBackend):
     def apply_defaults(self, spec: JobSpec) -> None:
         """RIKYU has exactly one partition, so a blank queue_name always
-        means "gpu".
+        means "gpu"; a configured project is filled in when the caller
+        didn't name one.
 
-        No account default is filled in here, unlike HBW2 — but note that a
-        user who belongs to more than one RIKYU project *does* get a hard
-        sbatch rejection ("You belong to multiple projects, so the project
-        to be charged must be specified explicitly") when a job omits
-        --account. Verified live. Such a user must set
-        spec.attributes.account per job today; wiring HBW2-style
-        config-driven account defaulting for RIKYU too would be a small,
-        obviously-correct follow-up (see facilities/hokusai/facility.py for
-        the pattern) — it just hasn't been done yet.
+        Deliberately does *not* raise when no account can be resolved —
+        that's the difference from HBW2. Being in a single project is a
+        perfectly valid RIKYU setup where sbatch supplies the account
+        itself, so refusing to submit would break those users. A
+        multi-project user with nothing configured still gets sbatch's own
+        rejection, which names the problem clearly enough.
         """
         if not spec.attributes.queue_name:
             spec.attributes.queue_name = "gpu"
+        if spec.attributes.account is None:
+            spec.attributes.account = _default_account()
 
     def validate_spec(self, spec: JobSpec) -> None:
         """RIKYU only accepts these GPU counts per job (Job Resources guide

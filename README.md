@@ -74,11 +74,16 @@ whole repo, not one per facility — coverage is uniform by construction
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e .
-.venv/bin/python -m hpc_mcp.doctor            # health check, every registered facility
-.venv/bin/python -m hpc_mcp.doctor rikyu       # just one facility
-.venv/bin/python tests/live_smoke.py           # live, read-only smoke test over MCP stdio
-.venv/bin/python tests/live_smoke.py --job     # + submits a real tiny job — run when touching
-                                                #   compute/, middleware.py, or models.py
+
+.venv/bin/python tests/conformance.py            # offline; every facility, no SSH needed
+.venv/bin/python -m hpc_mcp.doctor               # health check, every registered facility
+.venv/bin/python -m hpc_mcp.doctor rikyu          # just one facility
+.venv/bin/python tests/live_smoke.py              # live, read-only, every facility
+.venv/bin/python tests/live_smoke.py --job rikyu  # + submits a real tiny job there — run when
+                                                   #   touching compute/, middleware.py, models.py
+
+python scripts/render_facility_tables.py          # after editing any facility.json
+python scripts/render_skills.py                   # after editing any skill_notes/*.md
 ```
 
 ## License

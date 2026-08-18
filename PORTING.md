@@ -35,10 +35,67 @@ Two hard rules:
    (and hook overrides) you construct — never by editing those shared
    files. If you think you need to edit them, re-read the relevant module's
    docstring; you've likely misunderstood an extension point.
-2. **Prefer clarity over cleverness.** A little facility-specific code in
-   your own `facility.py` is fine and expected — you are one of several
-   facilities built this way, and a small, easy-to-read override beats a
-   clever generic mechanism that isn't.
+2. **Write the code. Don't generalize it.** Your facility is expected to
+   contain real, plain, explicit Python. See the next section.
+
+## 0a. Where does this go? (read this before writing anything)
+
+The single most important rule in this repo:
+
+> **Facility-specific behavior goes in `facilities/<slug>/facility.py`,
+> written out explicitly — even when another facility already does
+> something that looks similar.**
+
+The base classes stay simple and readable on purpose. They expose hooks;
+they do not accumulate knowledge about individual machines. A shared class
+that grows a `mandatory_account=True` flag, or a branch on the facility
+slug, makes every facility harder to read and every future change riskier.
+Two facilities each spelling out their own five readable lines does not.
+
+**Duplication between facilities is explicitly fine.** RIKYU and HBW2 both
+resolve a project/account to charge, in similar-looking code, in their own
+`facility.py` files. That is the intended outcome, not tech debt to
+refactor away — and reading them side by side shows why: they use
+different env vars, different config keys, HBW2's account is *always*
+mandatory while RIKYU's only matters for users in several projects, and
+HBW2 raises where RIKYU deliberately doesn't. A shared "account helper"
+would have to hide all four of those differences behind parameters, and
+the next facility's variation would add a fifth. The explicit version says
+what it does.
+
+Use this table to decide where something belongs:
+
+| What you have | Where it goes |
+|---|---|
+| A cluster fact (partitions, storage, limits, modules) | `data/<slug>_config.json` |
+| Prose an agent needs (dialect gotchas, module tables, failure modes) | `skill_notes/<workflow>.md` (§7) |
+| A connection/setting difference (host, embedding endpoint, guide filename, a `remotemanager.Computer` option) | a `register_facility(...)` argument (§5) |
+| A scheduler-dialect difference already covered by a knob (GPU flag style, explicit `--nodes`, GPU vendor map) | a `SlurmBackend(...)` constructor argument (§6) |
+| Filling in a default the caller omitted (partition, account, anything) | your own `apply_defaults()` override — **write it out** |
+| Rejecting a spec the scheduler would reject confusingly | your own `validate_spec()` override — **write it out** |
+| Reporting more than the base `get_projects()` returns | your own `get_projects()` override, calling `super()` — **write it out** |
+| A tweak to the rendered script itself | your own `render_script()` override, reusing `_header()`/`render_body()` — **write it out** |
+| Anything else specific to your machine | a plain function or method in your `facility.py` |
+
+**What does belong upstream** — a much shorter list. Change
+`hpc_agent_core/` only when something is true of *every* facility of that
+kind, with no per-facility branching, and you can state it without naming
+a machine. "sacct trails sbatch by a second or two on Slurm, so fall back
+to scontrol" qualifies: it's a property of Slurm, it fixed a real bug on
+two facilities independently, and the code mentions no facility. "HBW2
+needs an account" does not qualify — it names a machine. When in doubt,
+write it in your facility; moving code upstream later is easy and safe,
+while pulling a machine-specific branch back out of a shared class after
+three facilities depend on it is not.
+
+**Making duplication safe.** The cost of duplication is drift, so this
+repo pays for it with a shared conformance test rather than shared code:
+`tests/conformance.py` runs the same behavioral assertions against *every*
+registered facility (defaults actually get filled in, an unknown facility
+errors clearly, a mandatory-field failure names the fix, ...). Add a case
+there when your facility establishes a behavior others should also honor —
+that's how a genuinely important change propagates, without collapsing
+readable per-facility code into a shared abstraction.
 
 ## 1. Learn the target machine before writing anything
 
@@ -416,11 +473,19 @@ Commit both.
 ## 9. Validate before calling the port done
 
 ```bash
-.venv/bin/python -m hpc_mcp.doctor mymachine    # config, ssh+scheduler, guide bundled, docs index, embedding
-.venv/bin/python tests/live_smoke.py            # read-only tier against every registered facility (live SSH)
-.venv/bin/python tests/live_smoke.py --job      # + submits a real tiny job on rikyu — extend this
-                                                 #   script to also cover your new facility's job tier
+.venv/bin/python tests/conformance.py             # offline; runs the shared per-facility behavioral checks
+.venv/bin/python -m hpc_mcp.doctor mymachine      # config, ssh+scheduler, guide bundled, docs index, embedding
+.venv/bin/python tests/live_smoke.py              # read-only tier against every registered facility (live SSH)
+.venv/bin/python tests/live_smoke.py --job mymachine   # + submits a real tiny job on your facility
 ```
+
+Run `tests/conformance.py` first — it needs no cluster and catches the
+common facility mistakes (a default that overwrites a caller's value, an
+apply_defaults that isn't idempotent, a "you must configure X" error too
+terse to act on, a missing guide/facts file). Add an entry to
+`JOB_DEFAULTS` in `tests/live_smoke.py` so `--job <your-slug>` knows a
+known-good tiny spec for your machine; the read-only tier needs nothing
+from you (it iterates whatever is registered).
 
 `tests/live_smoke.py` is deliberately short and machine-agnostic already —
 it iterates `get_facilities()` for the read-only tier, so your new facility

@@ -19,26 +19,5 @@ jobs:
         run: python scripts/render_facility_tables.py --check
       - name: Generated per-facility skills up to date
         run: python scripts/render_skills.py --check
-      - name: Every facility registers cleanly (no SSH)
-        run: |
-          python -c "
-          import hpc_mcp
-          from hpc_agent_core import config
-          facs = config.list_facilities()
-          assert facs, 'no facilities registered'
-          for f in facs:
-              print(f.slug, f.display_name)
-              assert (f.data_dir / f.docs_filename).exists(), f'{f.slug}: missing guide'
-              assert (f.data_dir / f.facts_filename).exists(), f'{f.slug}: missing facts JSON'
-          "
-      - name: Unknown-facility error path
-        run: |
-          python -c "
-          import hpc_mcp
-          from facilities.registry import get_backend
-          try:
-              get_backend('not-a-real-facility')
-              raise SystemExit('expected ValueError')
-          except ValueError as e:
-              assert 'Unknown facility' in str(e)
-          "
+      - name: Conformance (every facility, offline)
+        run: python tests/conformance.py
