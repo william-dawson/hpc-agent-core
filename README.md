@@ -1,15 +1,21 @@
 # hpc-agent-hub
 
-One Claude Code / Codex plugin, one MCP server process, every onboarded
-supercomputer reachable through one generic tool surface. An agent submits
-and monitors jobs, manages files, and searches documentation on any
-registered facility by passing its slug on every call — `submit_job(facility
-="rikyu", ...)`, `search_docs(facility="rccs-cloud", ...)`.
+This project lets an agent work on *every* HPC cluster you have access to,
+through one plugin and one server. From your own personal computer, the
+agent can connect to any of them, compile code, organize data, and submit
+jobs. It should work with any standard harness that supports mcp servers
+(claude code, codex, opencode, cline, etc).
 
-This supersedes the earlier "one repo per machine, all pinning a shared
-[hpc-agent-core](https://github.com/william-dawson/hpc-agent-core) library"
-model: instead of N separate repos/plugins/processes, every facility lives
-in this one repo and this one process.
+https://github.com/user-attachments/assets/770e1f11-01c7-48f3-8c89-70efc3722e95
+
+This is the unified form of [`hpc-agent-core`](https://github.com/william-dawson/hpc-agent-core).
+Instead of one repository and one plugin per machine, every cluster lives
+here as a `facilities/<name>/` directory, and every tool takes the machine
+name as its first argument — `submit_job(facility="rikyu", ...)`,
+`search_docs(facility="fugaku", ...)`. The agent asks `get_facilities()`
+when it doesn't already know which machine you mean.
+
+Clusters currently onboarded:
 
 <!-- FACILITY_TABLE:START -->
 | slug | facility | scheduler | description |
@@ -22,79 +28,18 @@ in this one repo and this one process.
 
 ## Install
 
-### Prerequisite: uv
+Clone this repository, then tell your coding agent:
 
-The plugin starts its MCP servers with `uv tool run` from this repository's
-`main` branch, so [`uv`](https://docs.astral.sh/uv/) must be installed and
-on your `PATH` before Claude Code or Codex starts the plugin:
+> Install the skill files and mcp servers of this repository.
 
-```bash
-brew install uv        # or: curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-Restart Claude Code or Codex afterwards so the plugin process inherits the
-updated `PATH`.
-
-### Claude Code
-
-```
-/plugin marketplace add william-dawson/hpc-agent-hub
-/plugin install hpc@hpc-marketplace
-/reload-plugins
-```
-
-### Codex
-
-```
-codex plugin marketplace add william-dawson/hpc-agent-hub
-```
-
-Then open `/plugins`, install `hpc`, start a new thread, and run
-`/<facility>-demo` (e.g. `/rikyu-demo`) to verify end to end.
-
-### Manual (any MCP-compatible client)
-
-Both options below only register the MCP servers — copy
-`plugins/hpc/skills/` into wherever your client loads skills from too (this
-varies by client).
-
-#### Option A — Using Hatch!
-
-[Hatch!](https://github.com/CrackingShells/Hatch) registers MCP servers on
-any supported host from a single command. Install it once, then configure
-both servers — replace `<host>` with your target platform (`claude-code`,
-`codex`, `cursor`, `vscode`, `claude-desktop`, `kiro`, `gemini`,
-`lmstudio`, or any other
-[supported host](https://github.com/CrackingShells/Hatch#supported-mcp-hosts)):
-
-```bash
-pip install hatch-xclam
-
-hatch mcp configure hpc --host <host> \
-  --command uv \
-  --args "tool run --quiet --from git+https://github.com/william-dawson/hpc-agent-hub.git@main hpc-mcp"
-
-hatch mcp configure hpc-docs --host <host> \
-  --command uv \
-  --args "tool run --quiet --from git+https://github.com/william-dawson/hpc-agent-hub.git@main hpc-docs-mcp"
-```
-
-To replicate the same configuration to additional hosts:
-
-```bash
-hatch mcp sync --from-host <host> --to-host cursor,vscode
-```
-
-#### Option B — Edit `.mcp.json` directly
-
-Create or edit `.mcp.json` in your project root, using the same two entries
-as [`plugins/hpc/.mcp.json`](plugins/hpc/.mcp.json).
+That is the whole installation. The agent will register the two mcp servers
+(`hpc-mcp` and `hpc-docs-mcp`) with whatever harness you are running, and
+copy the skills into wherever that harness loads them from.
 
 ## Configure
 
-Each facility has its own settings file at
-`~/.hpc-agent/<slug>.json` — one file per machine, all in one directory.
-The minimum is an SSH host:
+Each cluster has its own settings file at `~/.hpc-agent/<name>.json` — one
+file per machine, all in one directory. The minimum is an ssh host:
 
 ```json
 {
@@ -103,98 +48,94 @@ The minimum is an SSH host:
 ```
 
 - `ssh.host` is a `~/.ssh/config` alias, a `user@hostname`, or
-  `"localhost"` if the agent runs directly on that cluster's own front-end
-  node (no SSH at all). `<SLUG>_HOST` overrides the file.
-- Some facilities need more — HBW2 requires a project account
-  (`"defaults": {"account": "..."}`), for instance. **You don't have to
-  look this up:** every tool call that can't reach a facility returns that
-  machine's complete setup directions, including the exact JSON to write.
-- For semantic documentation search, add
-  `"embedding": {"api_key": "..."}` (or set `<SLUG>_EMBED_API_KEY` /
-  the shared `RCCS_EMBED_API_KEY`). Without a key — or off the RIKEN
-  network — docs search falls back to BM25 keyword matching over the same
-  content, so it still works.
+  `"localhost"` if the agent is running directly on that cluster's own
+  front-end node (no ssh at all). `RIKYU_HOST` overrides the file.
+- Some machines need more. Fugaku requires a project group on every job,
+  HOKUSAI requires a project account. **You don't have to look any of this
+  up**: any tool call that can't reach a cluster replies with that
+  machine's own setup instructions, including the exact json to write and
+  where to get an ssh key registered.
+- For documentation search, add `"embedding": {"api_key": "..."}`. Without
+  a key — or off the RIKEN network — docs search falls back to keyword
+  matching over the same content, so it still works.
 
-The `<slug>-configuring` skill (e.g. `/rikyu-configuring`) walks through
-this interactively and can write the file for you.
+You can also just ask the agent to do it: every cluster has a
+`<name>-configuring` skill that walks through this and writes the file for
+you.
 
-## Verify
+Then check everything is reachable. The simplest way is to ask the agent
+to run the doctor, but you can also run it yourself without installing
+anything:
 
 ```bash
-uv tool run --quiet --from git+https://github.com/william-dawson/hpc-agent-hub.git@main hpc-doctor
+uv tool run --from git+https://github.com/william-dawson/hpc-agent-core.git@unified-hub hpc-doctor
 ```
 
-Checks every registered facility (pass a slug to check just one). All lines
-should read `✓` except possibly embedding, which falls back to keyword
-search outside RIKEN's network — not blocking.
+Every line should read `✓`, except possibly the embedding endpoint — that
+one falls back to keyword search and is not blocking. Add a cluster name to
+check just that one.
 
-## Adding a new facility? Read `PORTING.md`.
+## Adding a cluster you have access to?
 
-**[`PORTING.md`](PORTING.md) is the complete porting guide.** Porting a new
-machine means opening a PR against *this* repo that adds one
-`facilities/<slug>/` directory — no new repo, no new plugin. Start there if
-you're about to onboard a facility.
+This project is an exercise in Specification Driven Development. As we
+know, clusters are not standardized. Each one offers a unique combination
+of hardware and software. Interactions with the cluster are also not
+standardized. For example, two clusters may expose slurm as the job
+scheduler, yet the way the queues are set up, the required arguments, the
+complementary commands for things like budgeting, are all unique. And some
+machines are not slurm at all — Fugaku runs Fujitsu's PJM, with a
+different command for every operation.
 
-## What's here
+AI coding provides an alternative approach. Our goal is a comprehensive
+**specification** for cluster interactions, such that one can use vibe
+coding to automatically generate support for a new cluster. That
+specification is [`PORTING.md`](PORTING.md).
 
-- `hpc_agent_core/` — the generic engine: `config.py` (the facility
-  registry), `middleware.py` (the SSH execution layer — the only thing that
-  talks to a cluster), `models.py` (PSI/J-style job models), `compute/`
-  (config-driven Slurm and Grid-Engine backends; a facility whose
-  scheduler is neither brings its own — see `facilities/fugaku/`), `rag/` (the
-  docs-search pipeline), `docs_server.py`, `doctor.py`, `serving.py`,
-  `mcp_server.py`.
-- `facilities/<slug>/` — one directory per onboarded machine: `facility.py`
-  (registers the facility + its scheduler backend), `facility.json` (the
-  small manifest the table above is rendered from), `data/` (the facts
-  JSON, the hand-written guide, the pre-built docs index), `skill_notes/`
-  (real, facility-specific how-to — GPU dialect, module tables, MPI
-  gotchas, failure modes — dropped into that facility's generated skills).
-- `hpc_mcp/` — the unified server entry points (`hpc_server.py`,
-  `docs_server.py`, `doctor.py`, `ingest.py`) — importing `hpc_mcp` itself
-  registers every facility under `facilities/`.
-- `plugins/hpc/` — the Claude Code / Codex plugin: one `.mcp.json`, one
-  `skills/` tree with **real, distinct skill files per facility**
-  (`rikyu-submitting-jobs`, `rccs-cloud-submitting-jobs`, ...), generated
-  from a shared template (the genuinely universal mechanics) plus that
-  facility's own `skill_notes/` (the cluster-specific knowhow) — not one
-  generic skill shared by every machine. One small `hpc-facilities` skill
-  (not generated per facility) is the discovery entry point.
-- `templates/skills/*.md.tmpl` — one shared template per workflow
-  (configuring, submitting-jobs, monitoring-jobs, reference, demo,
-  reproducing).
-- `scripts/render_facility_tables.py` — regenerates the table above (and
-  anywhere else marked `FACILITY_TABLE:START`/`END`) from
-  `facilities/*/facility.json`.
-- `scripts/render_skills.py` — regenerates every `plugins/hpc/skills/
-  <slug>-<workflow>/SKILL.md` from `templates/skills/*.md.tmpl` +
-  `facilities/*/skill_notes/*.md`. `.github/workflows/ci.yml` runs both
-  generators with `--check` so a PR that adds/edits a facility without
-  re-running them fails.
+Imagine you want to add a machine. You should follow these steps:
+* Clone this repository
+* Download the documentation related to your cluster
+* Start up a coding agent and tell it "given the documentation about
+machine X in folder Y and the porting guide `PORTING.md`, add X to this
+repository"
 
-## Tool surface: the IRI Facility API
+The coding agent will make all the design decisions and implement all the
+cluster specific code. It adds exactly one `facilities/<name>/` directory:
+the machine's facts, a guide written in its own words, the code that
+teaches the shared scheduler backend that machine's dialect, and the skill
+notes that turn hard-won operational knowledge — which mpi launcher
+actually works, which queue silently rejects a job an hour later — into
+something the agent knows before it makes the mistake.
 
-The MCP tool surface mirrors the [IRI Facility
+Nothing else in the repository needs to change, which is what makes it
+possible for several people to add different machines at the same time.
+When you are happy with it, open a pull request.
+
+### Tool surface: the IRI Facility API
+
+The mcp tool surface mirrors the [IRI Facility
 API](https://api.alcf.anl.gov/openapi.json) (the DOE standard this family
-targets — not vendored here; fetch it fresh when checking coverage). See
-[`IRI_CHECKLIST.md`](IRI_CHECKLIST.md) for coverage. One checklist for the
-whole repo, not one per facility — coverage is uniform by construction
-(every facility shares the same generic tool set).
+targets — not vendored here; fetch it fresh when checking coverage).
+[`IRI_CHECKLIST.md`](IRI_CHECKLIST.md) records what is implemented, what
+deviates and why, and what is deliberately left out. Because there is one
+tool surface shared by every cluster, those verdicts are real and
+repo-wide rather than a per-machine template.
 
 ## Development
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e .
 
-.venv/bin/python tests/conformance.py            # offline; every facility, no SSH needed
-.venv/bin/python -m hpc_mcp.doctor               # health check, every registered facility
-.venv/bin/python -m hpc_mcp.doctor rikyu          # just one facility
-.venv/bin/python tests/live_smoke.py              # live, read-only, every facility
-.venv/bin/python tests/live_smoke.py --job rikyu  # + submits a real tiny job there — run when
-                                                   #   touching compute/, middleware.py, models.py
+.venv/bin/python tests/conformance.py             # offline, every cluster
+.venv/bin/python tests/live_smoke.py              # read-only, needs ssh
+.venv/bin/python tests/live_smoke.py --job rikyu  # + submits a real job
+```
 
-python scripts/render_facility_tables.py          # after editing any facility.json
-python scripts/render_skills.py                   # after editing any skill_notes/*.md
+Two generated things must be regenerated and committed when you touch a
+cluster — CI fails the pull request otherwise:
+
+```bash
+python scripts/render_facility_tables.py   # after editing facility.json
+python scripts/render_skills.py            # after editing skill_notes/
 ```
 
 ## License

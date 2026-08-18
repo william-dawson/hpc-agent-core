@@ -26,9 +26,9 @@ from hpc_agent_core.client import connect_sync, pinned_params
 CACHE_DIR = "./.hpc_cache/<short-name-for-this-notebook>"
 hpc = connect_sync(
     pinned_params(
-        "https://github.com/william-dawson/hpc-agent-hub.git",
+        "https://github.com/william-dawson/hpc-agent-core.git",
         "hpc-mcp",
-        ref="main",
+        ref="unified-hub",
     ),
     mode="lazy",
     cache_dir=CACHE_DIR,

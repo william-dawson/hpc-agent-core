@@ -29,7 +29,7 @@ hpc-docs-mcp = "hpc_mcp.docs_server:main"
 hpc-doctor = "hpc_mcp.doctor:main"
 
 [project.urls]
-Repository = "https://github.com/william-dawson/hpc-agent-hub"
+Repository = "https://github.com/william-dawson/hpc-agent-core"
 
 [tool.setuptools.packages.find]
 include = ["hpc_agent_core*", "hpc_mcp*", "facilities*"]

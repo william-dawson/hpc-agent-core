@@ -9,12 +9,25 @@ procedure itself.
 
 One Claude Code / Codex plugin (`plugins/hpc/`), one MCP server process,
 every onboarded HPC facility reachable through one generic, facility-
-parametrized tool surface. This supersedes the earlier "one repo per
-machine, all pinning a shared `hpc-agent-core` PyPI library" model
-(`Rikyu-Agent`, `Hokusai-Agent`, `RCCS-CloudAgent`, ...) — those repos are
-untouched by this project and continue to exist independently; this is a
-fork of `hpc-agent-core`'s engine that absorbed multi-facility support into
-itself, not a consumer of the PyPI package.
+parametrized tool surface.
+
+**This lives on the `unified-hub` branch of
+`william-dawson/hpc-agent-core`.** It is the unified form of what `main`
+does per machine: `main` publishes a PyPI library that one-repo-per-machine
+plugins (`Rikyu-Agent`, `Hokusai-Agent`, `RCCS-CloudAgent`, `Fugaku-Agent`,
+...) each depend on, while this branch absorbs the engine and every machine
+into a single repo and a single server. Those per-machine repos are
+untouched by this branch and continue to work.
+
+Two consequences worth knowing before you change anything here:
+
+- The `hpc_agent_core` package on this branch is **not** API-compatible
+  with the one `main` publishes — every entry point takes a `facility`
+  argument. Don't port a change between them by copying; re-derive it.
+- Anything installed from this branch shadows the PyPI `hpc-agent-core` if
+  both are in one environment. The plugin's `.mcp.json` uses
+  `uv tool run --from git+...@unified-hub`, which is isolated, so this only
+  matters if you hand-install both into the same venv.
 
 ## Design rules
 

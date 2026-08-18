@@ -66,14 +66,14 @@ about what's missing or being changed.
    key. Never commit it or echo the key back in conversation.
 4. **Validate**:
    ```bash
-   uv tool run --quiet --from git+https://github.com/william-dawson/hpc-agent-hub.git@main hpc-doctor rikyu
+   uv tool run --quiet --from git+https://github.com/william-dawson/hpc-agent-core.git@unified-hub hpc-doctor rikyu
    ```
    (From a checkout of this repo: `.venv/bin/python -m hpc_mcp.doctor
    rikyu` also works.)
 5. **If the embedding endpoint was added or changed**, rebuild this
    facility's docs index:
    ```bash
-   uv tool run --quiet --from git+https://github.com/william-dawson/hpc-agent-hub.git@main python -m hpc_mcp.ingest rikyu
+   uv tool run --quiet --from git+https://github.com/william-dawson/hpc-agent-core.git@unified-hub python -m hpc_mcp.ingest rikyu
    ```
    Then run the doctor again — it should report "chunks with embeddings".
 

@@ -6,7 +6,7 @@
     "name": "William Dawson",
     "email": "william.dawson@riken.jp"
   },
-  "repository": "https://github.com/william-dawson/hpc-agent-hub",
+  "repository": "https://github.com/william-dawson/hpc-agent-core",
   "keywords": ["hpc", "slurm", "riken", "supercomputer", "multi-facility"],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",

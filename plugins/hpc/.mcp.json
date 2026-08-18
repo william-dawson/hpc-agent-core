@@ -7,7 +7,7 @@
         "run",
         "--quiet",
         "--from",
-        "git+https://github.com/william-dawson/hpc-agent-hub.git@main",
+        "git+https://github.com/william-dawson/hpc-agent-core.git@unified-hub",
         "hpc-mcp"
       ],
       "env": {}
@@ -19,7 +19,7 @@
         "run",
         "--quiet",
         "--from",
-        "git+https://github.com/william-dawson/hpc-agent-hub.git@main",
+        "git+https://github.com/william-dawson/hpc-agent-core.git@unified-hub",
         "hpc-docs-mcp"
       ],
       "env": {}

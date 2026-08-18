@@ -56,14 +56,14 @@ about what's missing or being changed.
    key. Never commit it or echo the key back in conversation.
 4. **Validate**:
    ```bash
-   uv tool run --quiet --from git+https://github.com/william-dawson/hpc-agent-hub.git@main hpc-doctor rccs-cloud
+   uv tool run --quiet --from git+https://github.com/william-dawson/hpc-agent-core.git@unified-hub hpc-doctor rccs-cloud
    ```
    (From a checkout of this repo: `.venv/bin/python -m hpc_mcp.doctor
    rccs-cloud` also works.)
 5. **If the embedding endpoint was added or changed**, rebuild this
    facility's docs index:
    ```bash
-   uv tool run --quiet --from git+https://github.com/william-dawson/hpc-agent-hub.git@main python -m hpc_mcp.ingest rccs-cloud
+   uv tool run --quiet --from git+https://github.com/william-dawson/hpc-agent-core.git@unified-hub python -m hpc_mcp.ingest rccs-cloud
    ```
    Then run the doctor again — it should report "chunks with embeddings".
 
