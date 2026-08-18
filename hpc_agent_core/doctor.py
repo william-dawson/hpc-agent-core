@@ -210,6 +210,12 @@ def check_facility(facility: str) -> bool:
 def main(facility: str | None = None) -> int:
     """Check one facility (if `facility` is given) or every registered
     facility (the default)."""
+    import hpc_mcp
+    if hpc_mcp.FAILED_FACILITIES and not facility:
+        print("\n=== facilities that failed to load ===")
+        for slug, error in hpc_mcp.FAILED_FACILITIES.items():
+            print(f"{FAIL} {slug}: {error}")
+
     facilities = [config.get_facility(facility)] if facility else config.list_facilities()
     if not facilities:
         print(f"{FAIL} no facilities registered")
@@ -218,7 +224,7 @@ def main(facility: str | None = None) -> int:
     print()
     for slug, ok in results.items():
         print(f"{OK if ok else FAIL} {slug}")
-    if all(results.values()):
+    if all(results.values()) and not hpc_mcp.FAILED_FACILITIES:
         print("\nAll checks passed.")
         return 0
     print("\nSome checks FAILED — see above.")

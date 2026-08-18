@@ -55,10 +55,22 @@ def get_facilities() -> list[dict]:
     one of the `slug` values returned here; passing anything else raises a
     clear error listing the valid slugs, but it's cheaper to just check
     first."""
-    return [
+    listing = [
         {"slug": f.slug, "display_name": f.display_name, "description": f.description}
         for f in config.list_facilities()
     ]
+    # A facility whose module failed to import is skipped at startup so it
+    # can't deny the server to everyone else — but it must not vanish
+    # silently, or a user asking "why can't I see machine X" gets no answer.
+    for slug, error in hpc_mcp.FAILED_FACILITIES.items():
+        listing.append({
+            "slug": slug,
+            "display_name": f"{slug} (unavailable)",
+            "description": f"This facility failed to load and cannot be used: {error}. "
+                            "Report it to whoever maintains this deployment.",
+            "unavailable": True,
+        })
+    return listing
 
 
 @mcp.tool()
