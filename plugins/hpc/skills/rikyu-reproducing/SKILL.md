@@ -1,10 +1,10 @@
 ---
-name: hpc-reproducing
-description: Use when the user asks to make a result reproducible, shareable, or turned into a notebook/script — or proactively suggest it after a chunk of exploratory job/file work on any onboarded HPC facility that produced something worth preserving. Builds a Jupyter notebook that replays the real workflow via hpc_agent_core.client, not a hand-copied SSH script.
+name: rikyu-reproducing
+description: Use when the user asks to make a result on RIKYU (RIKEN AI4S / GB200) reproducible, shareable, or turned into a notebook/script — or proactively suggest it after a chunk of exploratory job/file work that produced something worth preserving. Builds a Jupyter notebook that replays the real workflow via hpc_agent_core.client, not a hand-copied SSH script.
 user-invocable: true
 ---
 
-# Turning a session into a reproducible notebook
+# Turning a RIKYU (RIKEN AI4S / GB200) session into a reproducible notebook
 
 Build a linear Jupyter notebook that reproduces what you and the user just
 did, by calling the same MCP tool surface you've been using, via
@@ -17,8 +17,6 @@ did, by calling the same MCP tool surface you've been using, via
    itself, exactly as always.
 2. **Python code inside the notebook file you produce**, using
    `hpc_agent_core.client`. This is the only place that code runs.
-
-Everything you need for #2 is written out below. Use it directly.
 
 ## Connecting — copy this exactly
 
@@ -37,16 +35,10 @@ hpc = connect_sync(
 )
 ```
 
-This launches the server the same way `uv tool run` does for everyone —
-nothing else needs to be installed to run this notebook. Note there is no
-`subdirectory=` argument here — unlike the older per-machine repos, this
-repo's Python project lives at its own root, not under `server/`.
+There is no `subdirectory=` argument — this repo's Python project lives at
+its own root.
 
-## Facility is an explicit argument on every call
-
-Every tool takes a `facility` slug as its first argument in this unified
-server. Pass it explicitly on every call in the notebook — don't rely on a
-default:
+## Every call passes `facility="rikyu"` explicitly
 
 ```python
 job = hpc.submit_job(facility="rikyu", spec={...})   # whatever the real spec was
@@ -59,9 +51,7 @@ hpc.close()
 No `await`, no `async with` anywhere — `connect_sync` gives plain blocking
 calls. `wait_for_job` and `fs_download` already cache correctly on their
 own (terminal poll result only; real downloaded bytes) — call them exactly
-like this, no extra logic needed around them. `wait_for_job`'s `facility`
-kwarg (and any other extra kwarg) is passed through to the underlying
-`get_job_status` call and folded into its cache key automatically.
+like this, no extra logic needed around them.
 
 ## Caching modes
 
@@ -71,12 +61,10 @@ kwarg (and any other extra kwarg) is passed through to the underlying
 | `lazy` | cache hit if present, else live | iterating on later cells |
 | `replay` | cache only, zero SSH | sharing the finished notebook |
 
-**Some facilities' compute is billed with no usage cap — check that
-facility's `hpc-configuring`/`get_facility` notes before assuming
-otherwise.** A `mode="live"` (or `"lazy"` on a cache miss) run of a cell
-containing `submit_job` submits a real job. Tell the user what will be
-submitted, and on which facility, before running that cell for real, the
-same as you would outside this workflow.
+**RIKYU compute is billed with no usage cap.** A `mode="live"` (or
+`"lazy"` on a cache miss) run of a cell containing `submit_job` submits a
+real, billed job — tell the user what will be submitted before running
+that cell for real, the same as you would outside this workflow.
 
 ## Where the notebook file goes
 
@@ -87,18 +75,16 @@ repository.
 ## Steps, in order
 
 1. **Write the minimal clean sequence of calls that produces the user's
-   actual result** — not a transcript of the whole conversation. One
-   sentence of markdown for anything genuinely informative from along the
-   way, not a replay of every detour.
+   actual result** — not a transcript of the whole conversation.
 2. **Alternate cells**: one markdown cell stating what happens next, one
    code cell that does it.
-3. **Execute the code for real first** (a plain script is fine for this
-   step), and copy the actual captured stdout/return values into the
-   notebook's saved cell outputs. The outputs you save must be what really
-   printed — never text you expect it to produce.
+3. **Execute the code for real first**, and copy the actual captured
+   stdout/return values into the notebook's saved cell outputs. The
+   outputs you save must be what really printed — never text you expect it
+   to produce.
 4. **Run once with `mode="live"` from an empty `CACHE_DIR`** (see the
    billing note above before doing this). Then copy that resulting cache
    directory to sit next to the notebook file, and tell the user to commit
    both together if they're versioning this.
 5. **If a partition/GPU choice isn't given or obvious, check
-   `get_resources(facility)`** and pick from that — don't guess a default.
+   `get_resources(facility="rikyu")`** and pick from that — don't guess.

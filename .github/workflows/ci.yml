@@ -17,6 +17,8 @@ jobs:
         run: python -m pip install -e .
       - name: Facility tables up to date
         run: python scripts/render_facility_tables.py --check
+      - name: Generated per-facility skills up to date
+        run: python scripts/render_skills.py --check
       - name: Every facility registers cleanly (no SSH)
         run: |
           python -c "

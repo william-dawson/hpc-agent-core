@@ -36,16 +36,29 @@ you're about to onboard a facility.
 - `facilities/<slug>/` — one directory per onboarded machine: `facility.py`
   (registers the facility + its scheduler backend), `facility.json` (the
   small manifest the table above is rendered from), `data/` (the facts
-  JSON, the hand-written guide, the pre-built docs index).
+  JSON, the hand-written guide, the pre-built docs index), `skill_notes/`
+  (real, facility-specific how-to — GPU dialect, module tables, MPI
+  gotchas, failure modes — dropped into that facility's generated skills).
 - `hpc_mcp/` — the unified server entry points (`hpc_server.py`,
   `docs_server.py`, `doctor.py`, `ingest.py`) — importing `hpc_mcp` itself
   registers every facility under `facilities/`.
 - `plugins/hpc/` — the Claude Code / Codex plugin: one `.mcp.json`, one
-  `skills/` tree, facility-generic (no per-machine skill copies).
+  `skills/` tree with **real, distinct skill files per facility**
+  (`rikyu-submitting-jobs`, `rccs-cloud-submitting-jobs`, ...), generated
+  from a shared template (the genuinely universal mechanics) plus that
+  facility's own `skill_notes/` (the cluster-specific knowhow) — not one
+  generic skill shared by every machine. One small `hpc-facilities` skill
+  (not generated per facility) is the discovery entry point.
+- `templates/skills/*.md.tmpl` — one shared template per workflow
+  (configuring, submitting-jobs, monitoring-jobs, demo, reproducing).
 - `scripts/render_facility_tables.py` — regenerates the table above (and
   anywhere else marked `FACILITY_TABLE:START`/`END`) from
-  `facilities/*/facility.json`; `.github/workflows/ci.yml` runs it with
-  `--check` so a PR that adds/edits a facility without re-running it fails.
+  `facilities/*/facility.json`.
+- `scripts/render_skills.py` — regenerates every `plugins/hpc/skills/
+  <slug>-<workflow>/SKILL.md` from `templates/skills/*.md.tmpl` +
+  `facilities/*/skill_notes/*.md`. `.github/workflows/ci.yml` runs both
+  generators with `--check` so a PR that adds/edits a facility without
+  re-running them fails.
 
 ## Tool surface: the IRI Facility API
 

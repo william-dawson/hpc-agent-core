@@ -46,11 +46,17 @@ hpc_agent_core/        The generic engine (SSH middleware, models, scheduler
                         registry in config.py).
 facilities/             One directory per onboarded facility, plus
                         registry.py (facility slug -> SchedulerBackend).
+                        Each facility's skill_notes/ holds its real,
+                        hand-written skill content (see PORTING.md §7).
 hpc_mcp/                The unified server entry points; importing this
                         package registers every facility.
-plugins/hpc/            The Claude Code / Codex plugin: .mcp.json, skills/.
-scripts/                render_facility_tables.py — the facility-table
-                        codegen (see PORTING.md §7).
+plugins/hpc/            The Claude Code / Codex plugin: .mcp.json, skills/
+                        (one real generated skill per facility+workflow,
+                        plus the shared hpc-facilities discovery skill).
+templates/skills/       Shared per-workflow skill templates (the mechanics
+                        every facility has identically) — not per-facility.
+scripts/                render_facility_tables.py (facility table codegen)
+                        and render_skills.py (per-facility skill codegen).
 tests/live_smoke.py     Live, facility-agnostic smoke test.
 ```
 

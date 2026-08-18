@@ -1,0 +1,139 @@
+"""Render one SKILL.md per (facility, workflow) from a shared template plus
+that facility's own hand-written notes — the placeholder mechanism for the
+genuinely universal parts of a skill (tool names, caching-mode tables,
+"show before you run"), while every facility's real cluster-specific
+knowhow (GPU dialect, module tables, MPI gotchas, failure modes, SSH portal
+name) stays freely-authored prose in its own file, not squeezed into a
+rigid multi-slot template.
+
+    python scripts/render_skills.py            # rewrite in place
+    python scripts/render_skills.py --check     # exit 1 if stale (CI)
+
+Inputs (per facility, from facilities/<dir>/):
+  facility.json           slug, display_name (also used by
+                           render_facility_tables.py)
+  skill_notes/<workflow>.md   freely-authored markdown dropped verbatim into
+                           that workflow's {{FACILITY_NOTES}} placeholder.
+                           Optional — a missing file falls back to a short
+                           generic pointer at get_facility/search_docs, so a
+                           facility PR can add real notes incrementally.
+
+Inputs (shared, from templates/skills/):
+  <workflow>.md.tmpl       one per workflow (configuring, submitting-jobs,
+                           monitoring-jobs, demo, reproducing). Editing a
+                           template is a deliberate, cross-cutting change
+                           that affects every facility at once — not
+                           something a single facility's PR should need to
+                           touch; see PORTING.md.
+
+Output: plugins/hpc/skills/<slug>-<workflow>/SKILL.md, one directory per
+(facility, workflow) pair — real, distinct skill files, not one shared
+generic skill. A facility PR that adds/edits skill_notes/*.md must re-run
+this (no --check) and commit the result; CI's --check run catches a PR
+that forgot to.
+"""
+import argparse
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+TEMPLATES_DIR = ROOT / "templates" / "skills"
+SKILLS_DIR = ROOT / "plugins" / "hpc" / "skills"
+
+_FALLBACK_NOTES = (
+    "_No facility-specific notes yet for this workflow — see "
+    "`get_facility(facility=\"{slug}\")` and `search_docs(facility=\"{slug}\", "
+    "query=...)` on the `hpc-docs` server for details._"
+)
+
+
+def load_facilities() -> list[dict]:
+    facs = []
+    for manifest in sorted((ROOT / "facilities").glob("*/facility.json")):
+        data = json.loads(manifest.read_text())
+        data["_dir"] = manifest.parent
+        facs.append(data)
+    return sorted(facs, key=lambda f: f["slug"])
+
+
+def render_one(template_text: str, fac: dict, workflow: str) -> str:
+    slug = fac["slug"]
+    env_prefix = slug.upper().replace("-", "_")
+    notes_path = fac["_dir"] / "skill_notes" / f"{workflow}.md"
+    notes = notes_path.read_text().rstrip() if notes_path.exists() else _FALLBACK_NOTES.format(slug=slug)
+    text = template_text
+    text = text.replace("{{SLUG}}", slug)
+    text = text.replace("{{DISPLAY_NAME}}", fac["display_name"])
+    text = text.replace("{{ENV_PREFIX}}", env_prefix)
+    text = text.replace("{{CONFIG_STEM}}", env_prefix.lower())
+    text = text.replace("{{FACILITY_NOTES}}", notes)
+    return text
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--check", action="store_true",
+                         help="Exit 1 if any generated skill would change, without writing.")
+    args = parser.parse_args()
+
+    facilities = load_facilities()
+    templates = sorted(TEMPLATES_DIR.glob("*.md.tmpl"))
+    if not templates:
+        print(f"No templates found under {TEMPLATES_DIR}", file=sys.stderr)
+        return 1
+
+    stale = []
+    written = []
+    seen_dirs = set()
+    for template_path in templates:
+        workflow = template_path.name.removesuffix(".md.tmpl")
+        template_text = template_path.read_text()
+        for fac in facilities:
+            out_dir = SKILLS_DIR / f"{fac['slug']}-{workflow}"
+            out_path = out_dir / "SKILL.md"
+            seen_dirs.add(out_dir)
+            rendered = render_one(template_text, fac, workflow)
+            current = out_path.read_text() if out_path.exists() else None
+            if current == rendered:
+                continue
+            stale.append(out_path)
+            if not args.check:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(rendered)
+                written.append(out_path)
+
+    # A generated skill directory whose (facility, workflow) no longer
+    # exists (a template or a facility.json was removed) is stale output,
+    # not a false positive — flag it the same way, but never auto-delete
+    # (deleting a directory silently is a bigger surprise than leaving an
+    # extra one for a human to remove deliberately).
+    orphans = []
+    if SKILLS_DIR.exists():
+        for existing in SKILLS_DIR.iterdir():
+            if existing.is_dir() and existing.name != "hpc-facilities" and existing not in seen_dirs:
+                orphans.append(existing)
+
+    rel = [str(p.relative_to(ROOT)) for p in stale]
+    if args.check:
+        if rel or orphans:
+            if rel:
+                print("Generated skills are stale:", *rel, sep="\n  ")
+            if orphans:
+                print("Orphaned generated-skill directories (template or facility removed):",
+                      *[str(p.relative_to(ROOT)) for p in orphans], sep="\n  ")
+            print("\nRun: python scripts/render_skills.py")
+            return 1
+        print(f"Generated skills up to date ({len(facilities)} facilities x {len(templates)} workflows).")
+        return 0
+
+    print(f"Rendered {len(written)} skill file(s) across {len(facilities)} facilities.")
+    if orphans:
+        print("Orphaned generated-skill directories (remove manually if intentional):",
+              *[str(p.relative_to(ROOT)) for p in orphans], sep="\n  ")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
