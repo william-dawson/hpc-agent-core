@@ -292,6 +292,42 @@ def check_repo() -> None:
                 f"{path.parent.name}: frontmatter name does not match its directory")
             assert "description:" in front, f"{path.parent.name}: no description"
 
+    def job_name_cannot_inject_into_scripts():
+        """spec.name is rendered unquoted into every scheduler's directive
+        line and used to build the job script's filename, so it is a real
+        injection boundary — a newline puts executable lines into a script
+        the scheduler runs, and a slash writes the script outside the jobs
+        directory. Both were demonstrated against this code. Guarded once in
+        the model so it holds for schedulers added later.
+        """
+        from hpc_agent_core.models import JobSpec
+        for bad in ["ok\nrm -rf /", "../../../tmp/pwned", "a b",
+                    'x"; rm -rf ~; #', "", "n" * 200, "foo$(id)", "a|b"]:
+            try:
+                JobSpec.model_validate({"name": bad, "executable": "x"})
+            except Exception:
+                continue
+            raise AssertionError(f"job name accepted but should be rejected: {bad!r}")
+        for ok in ["agent-job", "hub-smoke", "train_vit.v2", "probe360"]:
+            JobSpec.model_validate({"name": ok, "executable": "x"})
+
+        # Same primitive, every other field rendered into a directive line.
+        for label, extra in [
+            ("queue_name", {"attributes": {"queue_name": "gpu\nrm -rf /"}}),
+            ("account", {"attributes": {"account": "a\n#SBATCH --uid=0"}}),
+            ("reservation_id", {"attributes": {"reservation_id": "r\nevil"}}),
+            ("custom key", {"attributes": {"custom_attributes": {"k\nevil": "v"}}}),
+            ("custom value", {"attributes": {"custom_attributes": {"k": "v\nevil"}}}),
+            ("directory", {"directory": "/tmp\nevil"}),
+            ("stdout_path", {"stdout_path": "o\nevil"}),
+        ]:
+            spec = {"name": "t", "executable": "x", **extra}
+            try:
+                JobSpec.model_validate(spec)
+            except Exception:
+                continue
+            raise AssertionError(f"control character accepted in {label}")
+
     def every_facility_has_skill_notes():
         """A facility with no notes for a workflow still renders (a stub is
         substituted), but submitting-jobs is where a port's real value
@@ -307,6 +343,7 @@ def check_repo() -> None:
     check("unknown facility errors clearly, listing valid slugs", unknown_facility_errors_clearly)
     check("slugs are lowercase and safe", slugs_are_url_and_identifier_safe)
     check("fs_rm refuses home/root paths", fs_rm_refuses_dangerous_paths)
+    check("job names cannot inject into scripts", job_name_cannot_inject_into_scripts)
     check("generated skills have matching frontmatter", generated_skills_are_wellformed)
     check("scheduler errors aren't mistaken for SSH failures", unreachable_detection_discriminates)
     check("every facility has real submitting-jobs notes", every_facility_has_skill_notes)

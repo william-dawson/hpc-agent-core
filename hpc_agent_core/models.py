@@ -14,9 +14,10 @@ before calling submit(); until that layer exists, the neutral defaults below
 (no GPUs, no partition, 1-hour duration) are placeholders, not
 recommendations for any specific machine.
 """
+import re
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class JobState(str, Enum):
@@ -93,6 +94,35 @@ class Scheduler(str, Enum):
     GRIDENGINE = "gridengine"
 
 
+def _no_control_chars(value: str, field: str) -> str:
+    """Reject control characters in a string that reaches a batch script.
+
+    Every scheduler's header is a line-oriented directive format
+    (`#SBATCH ...`, `#PJM ...`, `#$ ...`), so a newline in any field
+    rendered into it ends the directive and starts a new script line that
+    the scheduler then executes. That is the whole injection primitive, and
+    it applies to every such field — partition, account, reservation,
+    working directory, output paths, custom attributes — not just the job
+    name. Blocking control characters closes the class without restricting
+    legitimate values (paths keep their slashes and dots).
+    """
+    if any(ord(c) < 32 or ord(c) == 127 for c in value):
+        raise ValueError(
+            f"{field} contains a control character (e.g. a newline). These "
+            "values are written into the generated batch script's directive "
+            "lines, where a newline would inject an executable line into the "
+            "script."
+        )
+    return value
+
+
+#: Characters safe to render unquoted into a scheduler directive line and to
+#: use as a filename. Deliberately strict: every real job name seen across
+#: the onboarded facilities fits, and widening it later is safe while
+#: narrowing it is not.
+_JOB_NAME_RE = re.compile(r"[A-Za-z0-9._-]{1,128}")
+
+
 class ResourceSpec(BaseModel):
     """Resources for a job (PSI/J ResourceSpec + a GPU extension).
 
@@ -130,6 +160,19 @@ class JobAttributes(BaseModel):
     custom_attributes: dict[str, str] = Field(default_factory=dict)
     scheduler: Scheduler | None = Field(None, description="Override which SchedulerBackend handles this job, on a machine with more than one; None means the machine's tool layer decides (e.g. from queue_name)")
     parallel_env: str = Field("smp", description="Grid Engine parallel environment (-pe); ignored by Slurm backends")
+
+    @field_validator("queue_name", "account", "reservation_id", "parallel_env")
+    @classmethod
+    def _clean_scheduler_field(cls, value, info):
+        return value if value is None else _no_control_chars(value, info.field_name)
+
+    @field_validator("custom_attributes")
+    @classmethod
+    def _clean_custom_attributes(cls, value: dict) -> dict:
+        for k, v in value.items():
+            _no_control_chars(str(k), "custom_attributes key")
+            _no_control_chars(str(v), f"custom_attributes[{k!r}]")
+        return value
 
 
 class CompressionType(str, Enum):
@@ -171,6 +214,38 @@ class JobSpec(BaseModel):
     """
     name: str = "agent-job"
     executable: str
+
+    @field_validator("directory", "stdout_path", "stderr_path", "stdin_path", "launcher")
+    @classmethod
+    def _clean_script_field(cls, value, info):
+        return value if value is None else _no_control_chars(value, info.field_name)
+
+    @field_validator("name")
+    @classmethod
+    def _safe_job_name(cls, value: str) -> str:
+        """Constrain the job name to characters every scheduler accepts.
+
+        This is a real injection boundary, not tidiness. The name is
+        rendered *unquoted* into the generated batch script's directive
+        line (`#SBATCH --job-name=<name>`, `#PJM --name "<name>"`) and is
+        also used to build the script's filename on the cluster. So a name
+        containing a newline injects executable lines into a script the
+        scheduler then runs on a compute node, and one containing `/` or
+        `..` writes the script outside the jobs directory. Both were
+        demonstrated against this code before this validator existed.
+
+        Quoting at each render site would be easy to forget in the next
+        facility's backend; rejecting bad names once, here, covers every
+        scheduler that exists now or later.
+        """
+        if not value or not _JOB_NAME_RE.fullmatch(value):
+            raise ValueError(
+                f"Job name {value!r} is not allowed. Use only letters, digits, "
+                "dot, underscore and hyphen (1-128 characters) — the name is "
+                "written into the batch script and used as its filename, so "
+                "whitespace, slashes and shell metacharacters are rejected."
+            )
+        return value
     arguments: list[str] = Field(default_factory=list)
     directory: str | None = Field(None, description="Working directory for the job")
     environment: dict[str, str] = Field(default_factory=dict)
