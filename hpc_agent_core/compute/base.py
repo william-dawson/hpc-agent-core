@@ -99,6 +99,19 @@ class SchedulerBackend(ABC):
         self.facility = facility
         self.name = name
 
+    def _unsupported(self, capability: str, because: str) -> NotImplementedError:
+        """A clear error for a capability this facility's scheduler lacks.
+
+        Names the facility and its scheduler rather than the Python class,
+        because this text reaches the user through an MCP tool error. "PJM
+        has no per-project accounting" is actionable; "FugakuBackend does
+        not implement get_projects()" is not.
+        """
+        return NotImplementedError(
+            f"Facility {self.facility!r} does not support {capability}: "
+            f"{because}. This is expected for this machine, not a fault."
+        )
+
     # --- Facility hooks -----------------------------------------------
     # Deliberately empty. These exist so a facility can write plain,
     # explicit Python in its own facilities/<slug>/facility.py instead of
@@ -138,20 +151,23 @@ class SchedulerBackend(ABC):
         facility with no per-project accounting gives a clear error instead
         of silently returning nothing.
         """
-        raise NotImplementedError(
-            f"{type(self).__name__} does not implement get_projects()"
+        raise self._unsupported(
+            "get_projects",
+            f"its scheduler ({self.name}) provides no per-project accounting",
         )
 
     def get_project_allocations(self, project_id: str) -> dict:
         """A project's allocation limits (its account-wide ceilings)."""
-        raise NotImplementedError(
-            f"{type(self).__name__} does not implement get_project_allocations()"
+        raise self._unsupported(
+            "get_project_allocations",
+            f"its scheduler ({self.name}) provides no allocation limits",
         )
 
     def get_user_allocations(self, project_id: str) -> dict:
         """The current user's allocation share within a project."""
-        raise NotImplementedError(
-            f"{type(self).__name__} does not implement get_user_allocations()"
+        raise self._unsupported(
+            "get_user_allocations",
+            f"its scheduler ({self.name}) provides no per-user allocation shares",
         )
 
     @abstractmethod
@@ -185,9 +201,8 @@ class SchedulerBackend(ABC):
         Optional: the default raises NotImplementedError so a scheduler
         without an update verb gives a clear error.
         """
-        raise NotImplementedError(
-            f"{type(self).__name__} does not implement update()"
-        )
+        raise self._unsupported(
+            "update_job", f"its scheduler ({self.name}) has no job-update verb")
 
     def get_live_resources(self) -> list[dict]:
         """Live per-partition/queue occupancy (allocated/idle/other/total
@@ -200,13 +215,11 @@ class SchedulerBackend(ABC):
         a subclass if your scheduler supports a live query for this —
         SlurmBackend already does, via sinfo.
         """
-        raise NotImplementedError(
-            f"{type(self).__name__} does not implement get_live_resources()"
-        )
+        raise self._unsupported(
+            "get_resources", f"its scheduler ({self.name}) exposes no live occupancy query")
 
     def get_drained_nodes(self) -> list[dict]:
         """Nodes currently drained/down and why, if the scheduler exposes
         this. Optional, same default-raises convention as get_live_resources()."""
-        raise NotImplementedError(
-            f"{type(self).__name__} does not implement get_drained_nodes()"
-        )
+        raise self._unsupported(
+            "get_drained_nodes", f"its scheduler ({self.name}) exposes no drained-node query")

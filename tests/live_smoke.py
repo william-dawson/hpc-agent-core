@@ -58,7 +58,7 @@ async def read_only_tier(hpc, docs_hpc) -> list[str]:
             projects = await hpc.get_projects(facility=slug)
             print(f"[{slug}] get_projects: {[p['account'] for p in projects]}")
         except Exception as e:
-            assert "does not implement" in str(e), e
+            assert "does not support" in str(e), e
             print(f"[{slug}] get_projects: not supported by this scheduler (expected)")
 
         docs = await docs_hpc.search_docs(facility=slug, query="how do I submit a job")

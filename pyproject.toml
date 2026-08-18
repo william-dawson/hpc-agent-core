@@ -35,3 +35,17 @@ Repository = "https://github.com/william-dawson/hpc-agent-hub"
 
 [tool.setuptools.packages.find]
 include = ["hpc_agent_core*", "hpc_mcp*", "facilities*"]
+
+# Each facility's data/ is read at runtime via Path(__file__).parent/"data"
+# (config.register_facility(data_dir=...)), so it MUST ship in the wheel —
+# without this the documented `uv tool run --from git+...` install produces
+# a server where get_facility and search_docs fail on every facility, while
+# a local editable install looks perfectly fine. Verified by inspecting a
+# real built wheel; tests/conformance.py asserts the globs still match.
+[tool.setuptools.package-data]
+"*" = [
+    "data/*.md",
+    "data/*.json",
+    "data/docs_index/*",
+    "facility.json",
+]

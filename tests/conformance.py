@@ -363,6 +363,37 @@ def check_repo() -> None:
         assert isinstance(hpc_mcp.FAILED_FACILITIES, dict), \
             "hpc_mcp must expose FAILED_FACILITIES so a skipped facility is never silent"
 
+    def facility_data_is_declared_as_package_data():
+        """Every file a facility reads at runtime must match a
+        package-data glob in pyproject.toml.
+
+        These are read via Path(__file__).parent/"data", which works
+        perfectly in an editable install and silently ships nothing in a
+        wheel unless declared. That is the failure this repo's own
+        PORTING.md warns about, and it was real here: the first built wheel
+        contained zero guides, zero docs indexes and zero facts JSON, so the
+        documented `uv tool run --from git+...` install would have produced
+        a server where get_facility and search_docs failed on every
+        facility, while local testing looked fine.
+        """
+        import fnmatch
+        import tomllib
+        root = pathlib.Path(__file__).resolve().parent.parent
+        with open(root / "pyproject.toml", "rb") as fh:
+            globs = tomllib.load(fh)["tool"]["setuptools"]["package-data"]["*"]
+
+        for fac in config.list_facilities():
+            wanted = [fac.data_dir / fac.docs_filename,
+                      fac.data_dir / fac.facts_filename,
+                      fac.data_dir / "docs_index" / "chunks.json"]
+            for path in wanted:
+                if not path.exists():
+                    continue
+                rel = path.relative_to(fac.data_dir.parent).as_posix()
+                assert any(fnmatch.fnmatch(rel, g) for g in globs), (
+                    f"{fac.slug}: {rel} matches no package-data glob in "
+                    f"pyproject.toml, so it would not ship in a wheel")
+
     def every_facility_has_skill_notes():
         """A facility with no notes for a workflow still renders (a stub is
         substituted), but submitting-jobs is where a port's real value
@@ -380,6 +411,7 @@ def check_repo() -> None:
     check("fs_rm refuses home/root paths", fs_rm_refuses_dangerous_paths)
     check("job names cannot inject into scripts", job_name_cannot_inject_into_scripts)
     check("a broken facility cannot deny the server", a_broken_facility_cannot_deny_the_server)
+    check("facility data ships in a wheel", facility_data_is_declared_as_package_data)
     check("generated skills have matching frontmatter", generated_skills_are_wellformed)
     check("scheduler errors aren't mistaken for SSH failures", unreachable_detection_discriminates)
     check("every facility has real submitting-jobs notes", every_facility_has_skill_notes)
