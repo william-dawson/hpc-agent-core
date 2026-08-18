@@ -27,8 +27,8 @@
    Leave `attributes.queue_name` blank if you like — RIKYU's only
    partition, `gpu`, is filled in automatically.
 4. **Verify**: `get_job_status(facility="rikyu", job_id=...)` right after
-   submission. `queued` with a `message` explains any wait; stdout lands in
-   `<workdir>/slurm-<job_id>.out`.
+   submission. `queued` with a `message` explains any wait. Read the output
+   with `read_job_output(facility="rikyu", job_id=...)` once it runs.
 
 ## MPI launch: use mpirun, not srun
 

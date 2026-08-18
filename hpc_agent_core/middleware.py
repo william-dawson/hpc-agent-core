@@ -110,23 +110,25 @@ def get_frontend(facility: "Facility | str") -> Computer:
 
 
 #: Substrings that mean "we never got a shell on the cluster", as opposed to
-#: "a command ran there and failed". SSH reports both through the same
-#: non-zero exit, so the text is the only signal available. A false positive
-#: costs an over-helpful error message; a false negative sends a brand-new
-#: user a bare "Permission denied" with nothing to act on, so this leans
-#: toward matching.
+#: "a command ran there and failed".
+#:
+#: Deliberately narrow. An earlier, looser version matched a bare
+#: "permission denied", which turned Slurm's own "Access/permission denied
+#: for job 9041823" — a perfectly clear scheduler error — into a wall of SSH
+#: setup directions. Every entry here must be text only ssh itself produces:
+#: ssh's auth failure always carries the parenthesised method list
+#: ("Permission denied (publickey)"), which a scheduler message doesn't.
+#: The reliable signal is the exit code below; these are the backstop.
 _UNREACHABLE_MARKERS = (
-    "permission denied",
+    "permission denied (",
     "could not resolve hostname",
     "name or service not known",
     "no route to host",
     "connection refused",
     "connection timed out",
-    "connection closed",
     "host key verification failed",
     "network is unreachable",
     "ssh: ",
-    "no such host",
 )
 
 

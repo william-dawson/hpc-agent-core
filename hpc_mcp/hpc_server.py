@@ -193,14 +193,59 @@ def cancel_job(facility: str, job_id: str) -> Job | str:
 
 
 @mcp.tool()
-def update_job(facility: str, job_id: str, updates: dict[str, str]) -> str:
-    """Modify an already-submitted job's scheduler attributes via
-    `scontrol update`, e.g. {"TimeLimit": "02:00:00"} to extend the wall
-    time. Only affects jobs still queued or running, and is subject to the
+def update_job(facility: str, job_id: str,
+                updates: dict[str, str] | None = None,
+                hold: bool | None = None) -> Job:
+    """Modify a queued or running job, then report its resulting state.
+    (IRI: PUT /compute/job/{job_id})
+
+    updates: scheduler fields to set via `scontrol update`, e.g.
+        {"TimeLimit": "02:00:00"} to extend the wall time.
+    hold: True holds a pending job, False releases it. This is a separate
+        scheduler verb (`scontrol hold`/`release`), not an updatable field,
+        so it can't be expressed through `updates`.
+
+    Only affects jobs still queued or running, and is subject to the
     scheduler's own permission rules (some fields can only be lowered, not
-    raised, by a non-admin). (IRI: PUT /compute/job/{job_id})"""
-    assignments = " ".join(f"{k}={shlex.quote(v)}" for k, v in updates.items())
-    return run_command(facility, f"scontrol update JobId={shlex.quote(job_id)} {assignments}")
+    raised, by a non-admin).
+    """
+    if not updates and hold is None:
+        raise ValueError("Nothing to change — pass updates and/or hold.")
+    quoted_id = shlex.quote(job_id)
+    if hold is True:
+        run_command(facility, f"scontrol hold {quoted_id}")
+    elif hold is False:
+        run_command(facility, f"scontrol release {quoted_id}")
+    if updates:
+        assignments = " ".join(f"{k}={shlex.quote(v)}" for k, v in updates.items())
+        run_command(facility, f"scontrol update JobId={quoted_id} {assignments}")
+    jobs = get_backend(facility).get_statuses([job_id])
+    if not jobs:
+        raise ValueError(f"Job {job_id} not found on facility {facility!r} after update")
+    return jobs[0]
+
+
+@mcp.tool()
+def read_job_output(facility: str, job_id: str, tail_lines: int | None = None) -> str:
+    """Read a job's console output — the `slurm-<job_id>.out` file in the
+    directory the job was launched from. (Extension — no IRI counterpart.)
+
+    Prefer this over calling fs_tail/fs_view with a guessed path: the
+    working directory is looked up from the job's own status record, so
+    this still finds the output for a job whose spec set `directory` to
+    something other than the home directory. Falls back to the home
+    directory only when the scheduler no longer reports a workdir.
+
+    tail_lines, if set, returns just the last N lines — use it for a long
+    or still-running job.
+    """
+    jobs = get_backend(facility).get_statuses([job_id])
+    workdir = ""
+    if jobs and jobs[0].status and jobs[0].status.meta_data:
+        workdir = jobs[0].status.meta_data.get("workdir", "") or ""
+    path = f"{workdir.rstrip('/')}/slurm-{job_id}.out" if workdir else f"slurm-{job_id}.out"
+    reader = f"tail -n {int(tail_lines)}" if tail_lines else "cat"
+    return run_command(facility, f"{reader} {quote_path(path)}")
 
 
 @mcp.tool()
@@ -264,10 +309,15 @@ def fs_upload(facility: str, local_path: str, remote_path: str) -> dict:
 
 
 @mcp.tool()
-def fs_download(facility: str, remote_path: str, local_path: str) -> dict:
+def fs_download(facility: str, remote_path: str, local_path: str | None = None) -> dict:
     """Download a file from a facility via rsync (falling back to scp),
-    with a SHA-256 verification of the transfer. (IRI: GET /filesystem/download)"""
-    return download_file(facility, remote_path, Path(local_path))
+    with a SHA-256 verification of the transfer. (IRI: GET /filesystem/download)
+
+    local_path defaults to the same filename in the current working
+    directory.
+    """
+    dest = Path(local_path) if local_path else Path.cwd() / Path(remote_path).name
+    return download_file(facility, remote_path, dest)
 
 
 @mcp.tool()
@@ -313,11 +363,25 @@ def fs_symlink(facility: str, target: str, link_name: str) -> str:
 
 @mcp.tool()
 def fs_compress(facility: str, paths: list[str], archive_path: str,
-                 compression: CompressionType = CompressionType.GZIP) -> str:
-    """Create a tar archive from one or more remote paths. (IRI: POST /filesystem/compress)"""
-    flag = _TAR_FLAGS[compression]
+                 compression: CompressionType = CompressionType.GZIP,
+                 match_pattern: str | None = None,
+                 dereference: bool = False) -> str:
+    """Create a tar archive from one or more remote paths.
+    (IRI: POST /filesystem/compress)
+
+    match_pattern: a regex passed to `find -regex` to archive only the
+        matching files beneath `paths`, instead of everything.
+    dereference: follow symlinks (tar -h) rather than storing the links.
+    """
+    deref = "h" if dereference else ""
+    flag = f"-{deref}{_TAR_FLAGS[compression]}"
     quoted_paths = " ".join(quote_path(p) for p in paths)
-    return run_command(facility, f"tar -{flag} {quote_path(archive_path)} {quoted_paths}")
+    if match_pattern:
+        cmd = (f"find {quoted_paths} -regex {shlex.quote(match_pattern)} -print0 | "
+               f"tar {flag} {quote_path(archive_path)} --null -T -")
+    else:
+        cmd = f"tar {flag} {quote_path(archive_path)} {quoted_paths}"
+    return run_command(facility, cmd)
 
 
 @mcp.tool()

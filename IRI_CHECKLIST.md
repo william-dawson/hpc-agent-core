@@ -19,7 +19,7 @@ being a per-machine template — coverage is uniform by construction.
 | `POST /compute/jobs` | `submit_job` | Implemented |
 | `GET /compute/jobs/{id}`, `GET /compute/jobs` | `get_job_status`, `get_job_statuses` | Implemented |
 | `DELETE /compute/jobs/{id}` | `cancel_job` | Implemented |
-| `PATCH /compute/jobs/{id}` | `update_job` | Implemented — generic `scontrol update` field-dict; Slurm-specific (a future Grid-Engine facility needs `qalter`-based semantics, likely a facility-level override) |
+| `PATCH /compute/jobs/{id}` | `update_job` | Implemented — `scontrol update` field-dict plus `hold`/release (a separate scheduler verb, not an updatable field); returns the resulting Job. Slurm-specific (a future Grid-Engine facility needs `qalter`, likely a facility-level override) |
 | `GET /storage` (listing, metadata, content), `PUT /storage`, compression, checksums | `fs_ls`, `fs_stat`, `fs_view`/`fs_head`/`fs_tail`, `fs_upload`/`fs_download`, `fs_cp`/`fs_mv`/`fs_mkdir`/`fs_symlink`, `fs_chmod`/`fs_chown`, `fs_checksum`, `fs_compress`/`fs_extract` | Implemented |
 
 ## Extensions (no IRI counterpart)
@@ -35,12 +35,12 @@ being a per-machine template — coverage is uniform by construction.
 - `render_job_script` — preview the fully-defaulted batch script without
   submitting (and without touching the scheduler). The "show before you
   run" rule's cheapest form.
+- `read_job_output` — read a job's console output, resolving the working
+  directory from the job's own status record. Prefer it over `fs_tail` with
+  a hand-built path, which is only correct for jobs launched from `$HOME`.
 
 **Not yet implemented anywhere in this repo**:
 
-- `read_job_output` (a `fs_tail`-flavored shortcut scoped to a job's known
-  output path — `fs_tail` already covers this generically once you know the
-  path).
 - `fs_grep` / `fs_glob` — remote analogues of a local Grep/Glob tool, backed
   by `middleware.grep_files()` / `glob_files()` (already facility-
   parametrized, just not exposed as tools yet).

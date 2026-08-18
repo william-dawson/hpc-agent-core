@@ -1,11 +1,22 @@
-## Worth highlighting for HBW2
+HBW2 is CPU-first, so demo the default `mpc` partition (312 nodes, the
+least contended) rather than the small GPU subsystem:
 
-HBW2 requires a project account on every job — if `get_projects` shows more
-than one, or `defaults.account` isn't configured yet, sort that out before
-Step 5 rather than hitting the error mid-demo. Consider adding a
-`get_projects(facility="{{SLUG}}")` call to the walkthrough: fair-share
-standing is the thing that explains queue waits here, so it's genuinely
-interesting output on this facility rather than boilerplate.
+```json
+{
+  "name": "hokusai-demo",
+  "executable": "hostname && echo '---' && lscpu | head -20",
+  "resources": {"node_count": 1, "processes_per_node": 1},
+  "attributes": {"duration": 300, "queue_name": "mpc"}
+}
+```
 
-Use the default `mpc` CPU partition for the test job — HBW2 is CPU-first
-and `mpc` has 312 nodes, so it's the least contended choice.
+`queue_name` and `account` are both filled in automatically from the
+configured defaults if omitted — but Step 1's `get_projects` output is worth
+showing either way, since **fair-share standing is what determines queue
+order here**.
+
+Don't be alarmed if `get_resources` shows `mpc` at 0 idle nodes: HBW2
+backfills aggressively, and a short job typically starts within seconds
+anyway (verified — a 1-node job and even a 64-node job each started
+immediately against a fully-allocated partition). Report what the job
+actually does rather than predicting a long wait from the idle count.

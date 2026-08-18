@@ -25,9 +25,13 @@ handling noted below.
 - **Cluster availability**: `get_resources(facility="hokusai")` —
   per-partition allocated/idle/other/total node counts. Idle nodes can
   start jobs immediately.
-- Job stdout/stderr default to `<workdir>/slurm-<job_id>.out` (`workdir` is
-  in the status record). Read with `fs_tail(facility="hokusai", path=...)`
-  for a running job's latest output, or `fs_view` once it's finished.
+- **Reading a job's output**: use
+  `read_job_output(facility="hokusai", job_id=...)`, optionally with
+  `tail_lines=N` for a long or still-running job. It looks the working
+  directory up from the job's own status record, so it finds the output
+  even when the job set `directory` to something other than `$HOME`.
+  Prefer it over `fs_tail` with a hand-built path — `~/slurm-<id>.out` is
+  only correct for jobs launched from the home directory.
 
 ## Fair-share is why a job waits
 
