@@ -161,7 +161,8 @@ you're about to onboard a facility.
   generic skill shared by every machine. One small `hpc-facilities` skill
   (not generated per facility) is the discovery entry point.
 - `templates/skills/*.md.tmpl` — one shared template per workflow
-  (configuring, submitting-jobs, monitoring-jobs, demo, reproducing).
+  (configuring, submitting-jobs, monitoring-jobs, reference, demo,
+  reproducing).
 - `scripts/render_facility_tables.py` — regenerates the table above (and
   anywhere else marked `FACILITY_TABLE:START`/`END`) from
   `facilities/*/facility.json`.

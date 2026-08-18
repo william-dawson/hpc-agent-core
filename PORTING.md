@@ -196,27 +196,61 @@ facilities/<slug>/               # e.g. facilities/rikyu/ — the ONLY directory
   facility.py                      # §5/§6 — registers config + scheduler backend
   facility.json                    # §7 — small manifest for the generated facility table
   data/
-    <slug>_config.json               # static facts: partitions, storage, modules (see §7's facts_filename)
+    <slug>_config.json               # static facts: partitions, storage, modules
     <slug>_guide.md                  # §2
     docs_index/                      # generated — see §8
   skill_notes/                     # §7 — real, facility-specific skill content (the important part)
     configuring.md
     submitting-jobs.md
     monitoring-jobs.md
+    reference.md
     demo.md
     reproducing.md
+  compute.py                       # §6 — ONLY if your scheduler is neither Slurm nor Grid Engine
+  skills/                          # §7 — ONLY for a workflow no other facility has
+    <name>/SKILL.md
 ```
 
-Note: `<slug>` uses hyphens where natural (`rccs-cloud`); the *directory*
-name must be a valid Python identifier, so use underscores there
-(`facilities/rccs_cloud/`) while the registered `slug` string keeps the
-hyphen — see `facilities/rccs_cloud/facility.py` for a real example of this
-split.
+Note on hyphens, which bite in three places at once. A slug may contain a
+hyphen where that reads naturally (`rccs-cloud`), and that string is what
+every tool call passes as `facility`. But:
+
+- the **directory** must be a valid Python identifier, so it uses
+  underscores: `facilities/rccs_cloud/`;
+- the default **data filenames** are derived from the slug with hyphens
+  turned into underscores — slug `rccs-cloud` defaults to
+  `rccs_cloud_config.json` and `rccs_cloud_guide.md`, not
+  `rccs-cloud_config.json`;
+- the **config file** and env-var prefix likewise use the underscore form
+  (`~/.hpc-agent/rccs_cloud.json`, `RCCS_CLOUD_HOST`).
+
+`facilities/rccs_cloud/` is a real worked example of all three. If your
+existing data files are named something else entirely, don't rename them —
+pass `facts_filename=` / `docs_filename=` to `register_facility()` instead,
+which is exactly what that facility does (`cloud_config.json`).
 
 Nothing outside `facilities/<slug>/` needs to change. `hpc_mcp/__init__.py`
 auto-imports every `facilities/*/facility.py` it finds — that's what
 "registering" your facility means, and it's how a new facility PR avoids
 touching any shared file.
+
+If your `facility.py` raises on import, your facility is skipped and
+reported as unavailable (by `get_facilities` and by `hpc-doctor`) rather
+than taking the server down for everyone else — but it is still broken, so
+check `hpc-doctor` after adding it.
+
+**Everything under `data/` must match a glob in `pyproject.toml`'s
+`[tool.setuptools.package-data]`.** Those files are read at runtime via
+`Path(__file__).parent / "data"`, which resolves fine in the editable
+install you develop against and ships *nothing* in a wheel unless declared.
+The current globs (`data/*.md`, `data/*.json`, `data/docs_index/*`,
+`facility.json`) already cover the standard layout — but if you add a file
+of another kind, run `python scripts/check_wheel_data.py`, which builds a
+real wheel and looks inside it. This is not hypothetical: the first wheel
+ever built from this repo contained zero guides and zero docs indexes, so
+the documented `uv tool run --from git+...` install produced a server where
+`get_facility` and `search_docs` failed on every facility, with local
+testing looking perfectly healthy.
 
 ## 5. Wire up `facility.py` — config registration
 
@@ -314,17 +348,44 @@ facility, not guessed:
 | Slurm, accounting **off** (a small/lab-scale machine), untyped `--gres=gpu:N` | `SlurmBackend(facility=SLUG, has_accounting=False, gpu_request_style="gres")` — note: this path degrades `get_recent_statuses` to "current live queue only" and is less battle-tested; verify against a real submitted job, not just `doctor` passing |
 | Grid Engine, one real queue, some queue-like names are actually host pins | `GridEngineBackend(facility=SLUG, default_queue="all.q", host_pins={"nodeA", "nodeB"}, queue_aliases={"gpu"})` |
 
-### The three optional backend hooks
+### What a backend must and may implement
 
-Beyond the constructor knobs, `SchedulerBackend` has three hooks a facility
-may override. All three are no-ops (or raise) by default — override only
-what your machine actually needs:
+If you construct `SlurmBackend`/`GridEngineBackend`, everything below is
+already done — you only override what differs. If you subclass
+`SchedulerBackend` directly (a scheduler core doesn't ship, like Fugaku's
+PJM), the first group is the work.
 
-| Hook | Called by | Override when |
+**Required** — abstract, no default:
+
+| Method | What it does |
+|---|---|
+| `render_script(spec)` | JobSpec → a batch script for your scheduler |
+| `submit(spec)` | write the script on the cluster and submit it; return `{job_id, script_path}` |
+| `get_statuses(job_ids)` | normalized `Job` per id |
+| `get_recent_statuses(since)` | the user's recent/live jobs |
+| `cancel(job_id)` | cancel, return the resulting state |
+
+**Expected in practice** — the default works, but is wrong or unhelpful for
+most real machines:
+
+| Method | Default if you skip it | Override when |
 |---|---|---|
-| `apply_defaults(spec)` | `submit_job`, `render_job_script` (before validation) | Your facility has defaults worth filling into a partial spec — a single obvious partition, or a **mandatory setting that lives in the user's own config** (see below). Mutates `spec` in place. |
-| `validate_spec(spec)` | `submit_job`, `render_job_script` (after defaults) | The scheduler would reject something with a confusing message and you can catch it first (e.g. a fixed set of allowed per-job GPU counts). |
-| `get_projects()` | the `get_projects`/`get_project` tools | Your facility exposes more than the base `sacctmgr` associations `SlurmBackend` already returns — call `super().get_projects()` and enrich. |
+| `check_scheduler()` | prints "no check defined" and passes | **Almost always.** This is how `hpc-doctor` proves your scheduler is reachable. `SlurmBackend` probes `sinfo --version`; PJM has no version flag on anything, so Fugaku checks its commands are on `PATH` via `doctor.check_commands_on_path()`. Getting this wrong is not cosmetic — a hardcoded Slurm probe once reported "slurm" as *Fugaku's* scheduler, because its login node happens to have Slurm installed for unrelated work. |
+| `apply_defaults(spec)` | no-op | Your facility has defaults worth filling into a partial spec — one obvious partition, or a mandatory setting from the **user's** config (see below). Mutates `spec` in place; raising `ValueError` is legitimate when a required field can't be resolved. |
+| `validate_spec(spec)` | no-op | The scheduler would reject something confusingly and you can catch it first — an allowed GPU-count list, a field your scheduler simply lacks, a value known to fail late (Fugaku rejects a comma-separated storage volume that `pjsub` accepts and the gate check kills minutes later). |
+
+**Optional** — the default raises a clear "this facility does not support
+X" through `SchedulerBackend._unsupported()`, which is the right answer when
+your scheduler genuinely lacks the capability. Fugaku leaves four of these
+alone precisely because PJM has no `sacctmgr` and no occupancy query:
+
+| Method | Backs the tool |
+|---|---|
+| `update(job_id, spec)` | `update_job` — apply a JobSpec to a submitted job. Only apply fields the caller actually set (`spec.model_fields_set`); report the rest as not applied rather than dropping them silently |
+| `get_projects()` | `get_projects` / `get_project` |
+| `get_project_allocations(id)` / `get_user_allocations(id)` | the two allocation tools |
+| `get_live_resources()` | `get_resources` / `get_resource` |
+| `get_drained_nodes()` | `get_drained_nodes` |
 
 **Facility-specific settings that belong to the *user*, not the machine.**
 Some facilities require something the bundled `data/<slug>_config.json`
@@ -553,11 +614,18 @@ Commit both.
 ## 9. Validate before calling the port done
 
 ```bash
-.venv/bin/python tests/conformance.py             # offline; runs the shared per-facility behavioral checks
-.venv/bin/python -m hpc_mcp.doctor mymachine      # config, ssh+scheduler, guide bundled, docs index, embedding
-.venv/bin/python tests/live_smoke.py              # read-only tier against every registered facility (live SSH)
+python scripts/render_facility_tables.py          # after editing facility.json
+python scripts/render_skills.py                   # after editing skill_notes/
+python scripts/check_wheel_data.py                # your data/ really ships in a wheel
+
+.venv/bin/python tests/conformance.py             # offline; the shared per-facility behavioral checks
+.venv/bin/python -m hpc_mcp.doctor mymachine      # config, ssh, YOUR scheduler, guide, docs index, embedding
+.venv/bin/python tests/live_smoke.py              # read-only tier, every registered facility (live SSH)
 .venv/bin/python tests/live_smoke.py --job mymachine   # + submits a real tiny job on your facility
 ```
+
+Commit whatever the two `render_*` scripts change — CI runs them with
+`--check` and fails the PR if the generated files are stale.
 
 Run `tests/conformance.py` first — it needs no cluster and catches the
 common facility mistakes (a default that overwrites a caller's value, an
@@ -581,6 +649,22 @@ requesting a GPU if the facility has any — and confirm you can see it
 queue, run, and complete through the agent before considering this port
 finished.
 
+Two things that specifically bite on a real submission, both learned the
+hard way here:
+
+- **Watch the job to a genuinely terminal state.** A scheduler can accept a
+  job, queue it, and reject it minutes later at a pre-execution check —
+  Fugaku does exactly this, ending in `ERR` with no output file. Sampling
+  the state 45 seconds after submission and seeing "queued" proves nothing,
+  and reading it as success cost this repo two wrong diagnoses in a row.
+- **Pass the environment through when overriding settings in a test.**
+  `StdioServerParameters(env=None)` gives the server subprocess a *minimal*
+  environment, not yours — so `MYMACHINE_FOO=bar python tests/live_smoke.py`
+  silently does nothing and the server reads the config file instead. That
+  invalidated an experiment here and led to a correct conclusion being
+  retracted. `tests/live_smoke.py` now passes `env=` explicitly; do the same
+  in any ad-hoc script.
+
 ## 10. Invariants that must hold, no exceptions
 
 - **The MCP server must never fail to start.** Missing or malformed config
@@ -589,7 +673,20 @@ finished.
   the configuring skill"), never a startup crash, and never something that
   prevents other, correctly-configured facilities from working. Nothing
   above module scope in your `facility.py` should touch the network or read
-  the config file eagerly.
+  the config file eagerly. The loader also catches an import-time exception
+  in any one facility so it can't deny the server to the rest — but don't
+  rely on that; a facility that only works because of it is broken.
+- **Never render an unvalidated string into a batch script.** Scheduler
+  headers are line-oriented (`#SBATCH …`, `#PJM …`, `#$ …`), so a newline
+  in any field you interpolate ends the directive and starts a script line
+  the scheduler will execute. `JobSpec` already rejects control characters
+  in every field that reaches a header, and constrains `name` further
+  because it also becomes a filename — if you add a field of your own,
+  either validate it the same way or `shlex.quote()` it at the render site.
+- **A capability your scheduler lacks should raise, not return nothing.**
+  Use the default (`SchedulerBackend._unsupported`) rather than returning
+  an empty list, so "this machine has no per-project accounting" reads as
+  a fact about the machine instead of looking like an empty result.
 - **An unknown facility slug fails loudly, listing valid slugs.** Don't
   catch or reinterpret `config.get_facility`'s / `facilities.registry
   .get_backend`'s `ValueError` — let it surface as the tool error.
@@ -621,8 +718,11 @@ touch:
   every registered facility generically.
 - `templates/skills/*.md.tmpl` — shared across every facility; see §7's
   note on why a template edit is a separate, deliberate change.
-- `scripts/render_facility_tables.py` / `scripts/render_skills.py` — run
-  them, don't edit them.
+- `scripts/*.py` (`render_facility_tables`, `render_skills`,
+  `check_wheel_data`) — run them, don't edit them.
+- `hpc_agent_core/` — the shared engine. If your facility needs something
+  it doesn't offer, re-read §0a: the answer is nearly always a hook
+  override or a `register_facility()` argument in your own directory.
 - `README.md`'s prose, `IRI_CHECKLIST.md`, `AGENTS.md` — edit only if your
   facility exposes something genuinely new the checklist doesn't cover yet
   (e.g. a scheduler with no `has_accounting`-style project listing).
@@ -633,6 +733,13 @@ generated `plugins/hpc/skills/<slug>-*/SKILL.md` files are committed output
 of your notes, not something you hand-edit directly (an edit there is
 overwritten the next time anyone runs `render_skills.py`) — edit the
 `skill_notes/` source instead and regenerate.
+
+`tests/conformance.py` is the one shared file you may **add** to: when your
+facility establishes a behavior every facility should honor, put the
+assertion there so it applies to machines onboarded later too (§0a,
+"making duplication safe"). Don't weaken an existing case to make your
+facility pass — if a check doesn't fit your scheduler, that is usually the
+check telling you something.
 
 If you find yourself wanting to write a new *tool* or a new server entry
 point just for your facility, stop — that's almost always a sign the thing
