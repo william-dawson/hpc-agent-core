@@ -41,10 +41,11 @@ reason with:
 pjstat -s <job_id>
 ```
 
-and read its `REASON` line (`GATE CHECK` is the common one). A known cause:
-a comma-separated `PJM_LLIO_GFSCACHE` value — see
-`{{SLUG}}-submitting-jobs`. `pjstat --history` returns nothing on this
-deployment, so `pjstat -s` is the tool that actually answers this.
+and read its `REASON` line. `GATE CHECK` was seen repeatedly during this
+port on trivial `small` jobs whose scripts were correct — cause not yet
+identified, see `{{SLUG}}-submitting-jobs`. `pjstat --history` returns
+nothing on this deployment, so `pjstat -s` is the only tool that answers
+this.
 
 ## Quotas and limits
 

@@ -40,13 +40,15 @@ or `resources.gpu_cores_per_process`; both are rejected outright.
    `attributes.custom_attributes["gfscache_volume"]` (e.g. `"/vol0004"`)
    or rely on the configured default. Without it `pjsub` rejects the job.
 
-   **Use a single volume.** A comma-separated list is accepted by `pjsub`
-   at submission time but then fails the pre-execution gate check: the job
-   is queued, never runs, and ends in PJM state `ERR` with
-   `REASON : GATE CHECK` and no output file at all. Verified live — the
-   same job with one volume, or with none, queued normally. If a user's
-   configured `defaults.gfscache_volume` contains a comma, that is the
-   first thing to suspect for an `ERR`/GATE CHECK job.
+   **Unresolved: `GATE CHECK` rejections.** During this port, trivial
+   1-node `small` jobs were accepted by `pjsub` and then failed the
+   pre-execution gate check — queued for a while, never run, ending in PJM
+   state `ERR` with `REASON : GATE CHECK` and no output file. Observed with
+   both a comma-separated `PJM_LLIO_GFSCACHE` and a single volume, so the
+   volume syntax is **not** the established cause. The cause is not yet
+   identified; it may be account- or project-specific. If a job ends in
+   `ERR` with no output, read `pjstat -s <job_id>` for the `REASON` line
+   before assuming anything about the script.
 5. **Leave `stdout_path`/`stderr_path` unset** — PJM has no flag for
    redirecting them. Output always lands at `<name>.<job_id>.out`/`.err` in
    the submission directory. Set `spec.directory` if you want it elsewhere.
