@@ -1,0 +1,6 @@
+{
+  "slug": "rccs-cloud",
+  "display_name": "R-CCS Cloud",
+  "description": "Heterogeneous ~20-partition cluster (CPU/NVIDIA/AMD/Intel GPU), Slurm with accounting.",
+  "scheduler": "slurm"
+}

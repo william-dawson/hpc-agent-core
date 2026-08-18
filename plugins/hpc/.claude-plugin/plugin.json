@@ -1,0 +1,10 @@
+{
+  "name": "hpc",
+  "description": "Interact with every onboarded HPC facility (RIKYU, R-CCS Cloud, ...) through one server: submit and monitor jobs, manage files, and search each facility's documentation.",
+  "version": "0.1.0",
+  "author": {
+    "name": "William Dawson",
+    "email": "william.dawson@riken.jp"
+  },
+  "keywords": ["hpc", "slurm", "riken", "supercomputer", "multi-facility"]
+}

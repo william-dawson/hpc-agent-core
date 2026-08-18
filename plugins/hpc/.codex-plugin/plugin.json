@@ -1,0 +1,26 @@
+{
+  "name": "hpc",
+  "version": "0.1.0",
+  "description": "Interact with every onboarded HPC facility (RIKYU, R-CCS Cloud, ...) through one server: submit and monitor jobs, manage files, and search each facility's documentation.",
+  "author": {
+    "name": "William Dawson",
+    "email": "william.dawson@riken.jp"
+  },
+  "repository": "https://github.com/william-dawson/hpc-agent-hub",
+  "keywords": ["hpc", "slurm", "riken", "supercomputer", "multi-facility"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "HPC",
+    "shortDescription": "Submit and monitor jobs across every onboarded HPC facility.",
+    "longDescription": "Interact with every onboarded HPC facility (RIKYU, R-CCS Cloud, ...) from Codex through one server: submit and monitor jobs, manage files, and search each facility's documentation. Call get_facilities first to see what's available.",
+    "developerName": "William Dawson",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "List the available HPC facilities.",
+      "Show cluster status for RIKYU.",
+      "Submit a small test job on RIKYU."
+    ]
+  }
+}

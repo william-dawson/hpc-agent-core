@@ -1,0 +1,14 @@
+{
+  "name": "hpc-marketplace",
+  "owner": {
+    "name": "William Dawson",
+    "email": "william.dawson@riken.jp"
+  },
+  "plugins": [
+    {
+      "name": "hpc",
+      "source": "./plugins/hpc",
+      "description": "Submit and monitor jobs, manage files, and search documentation across every onboarded HPC facility (RIKYU, R-CCS Cloud, ...) through one server."
+    }
+  ]
+}
