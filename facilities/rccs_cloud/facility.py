@@ -51,6 +51,16 @@ FACILITY = config.register_facility(
     # the slug-derived default).
     facts_filename="cloud_config.json",
     docs_filename="cloud_guide.md",
+    config_example={"ssh": {"host": "rccs-cloud"}},
+    setup_help=(
+        "The R-CCS Cloud accepts key-based SSH only. Add an 'rccs-cloud'\n"
+        "alias to ~/.ssh/config pointing at login.cloud.r-ccs.riken.jp with\n"
+        "your key, or set ssh.host to user@login.cloud.r-ccs.riken.jp.\n"
+        "No project account is needed — jobs without one use your default\n"
+        "Slurm account.\n"
+        "Running on an R-CCS Cloud front-end node instead of a laptop? Use\n"
+        "\"host\": \"localhost\" and no SSH key is needed at all."
+    ),
 )
 
 

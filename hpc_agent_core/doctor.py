@@ -33,10 +33,11 @@ OK, WARN, FAIL = "✓", "!", "✗"
 
 
 def check_config_file(facility: str) -> bool:
-    path = config.config_path(facility)
+    fac = config.get_facility(facility)
+    path = config.config_path(fac)
     if not path.exists():
-        print(f"{WARN} config file: {path} not found "
-              f"(using env vars / defaults — the configuring skill can create it)")
+        print(f"{WARN} config file: {path} not found (using env vars / "
+              f"defaults — the {fac.slug}-configuring skill can create it)")
         return True
     try:
         config.file_config(facility)

@@ -109,11 +109,71 @@ def get_frontend(facility: "Facility | str") -> Computer:
     return Computer(host=config.ssh_host(fac), **config.computer_kwargs(fac))
 
 
+#: Substrings that mean "we never got a shell on the cluster", as opposed to
+#: "a command ran there and failed". SSH reports both through the same
+#: non-zero exit, so the text is the only signal available. A false positive
+#: costs an over-helpful error message; a false negative sends a brand-new
+#: user a bare "Permission denied" with nothing to act on, so this leans
+#: toward matching.
+_UNREACHABLE_MARKERS = (
+    "permission denied",
+    "could not resolve hostname",
+    "name or service not known",
+    "no route to host",
+    "connection refused",
+    "connection timed out",
+    "connection closed",
+    "host key verification failed",
+    "network is unreachable",
+    "ssh: ",
+    "no such host",
+)
+
+
+#: ssh(1) exits 255 for its own failures (bad host, refused key, DNS, ...),
+#: reserving 0-254 for the remote command's own status. Checked in addition
+#: to the text markers because remotemanager does not always surface ssh's
+#: stderr — a wrong host can arrive here as exit 255 with empty output, and
+#: matching on text alone then yields a bare "command exited with code 255"
+#: with nothing for a new user to act on. A remote command can technically
+#: exit 255 itself; that costs an over-helpful message, which is the right
+#: side to err on.
+_SSH_FAILURE_RETURNCODE = 255
+
+
+def _looks_unreachable(detail: str, returncode: int | None = None) -> bool:
+    if returncode == _SSH_FAILURE_RETURNCODE:
+        return True
+    text = (detail or "").lower()
+    return any(marker in text for marker in _UNREACHABLE_MARKERS)
+
+
+def _unreachable_message(fac, detail: str) -> str:
+    """Setup directions for a facility we couldn't reach.
+
+    A configured-but-broken facility gets the same actionable directions as
+    a never-configured one, with its own error appended — the fix is the
+    same (correct the host/key in the config file), and a bare SSH error
+    tells a new user nothing about where the setting even lives.
+    """
+    configured = config.config_path(fac).exists()
+    problem = (
+        f"Facility {fac.slug!r} ({fac.display_name}) is configured at "
+        f"{config.config_path(fac)}, but the connection failed — the settings "
+        f"there are probably wrong or the key isn't registered yet."
+        if configured else ""
+    )
+    return config.setup_instructions(fac, problem=problem, ssh_error=detail)
+
+
 def run_command(facility: "Facility | str", cmd: str) -> str:
     """Run a shell command on `facility`'s login node; return stdout.
 
     Raises RuntimeError on non-zero exit so callers receive a clean MCP tool
-    error rather than having to parse error text from the output.
+    error rather than having to parse error text from the output. When the
+    failure is "we never reached the cluster" rather than "a command failed
+    there", the error carries this facility's full setup directions — see
+    config.setup_instructions().
     Output beyond OUTPUT_LIMIT_BYTES is truncated with a marker.
     """
     fac = config.resolve(facility)
@@ -127,20 +187,13 @@ def run_command(facility: "Facility | str", cmd: str) -> str:
                 f"echo {encoded} | base64 -d | bash -l", raise_errors=False,
             )
         except Exception as exc:
-            if not config.config_path(fac).exists():
-                raise RuntimeError(
-                    f"Facility {fac.slug!r} is not configured — run the "
-                    f"configuring skill to create {config.config_path(fac)}."
-                ) from exc
-            raise
+            raise RuntimeError(_unreachable_message(fac, str(exc))) from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
-        if not config.config_path(fac).exists():
-            raise RuntimeError(
-                f"Facility {fac.slug!r} is not configured — run the "
-                f"configuring skill to create {config.config_path(fac)}."
-                + (f" SSH error: {detail}" if detail else "")
-            )
+        if (_looks_unreachable(detail, result.returncode)
+                or not config.config_path(fac).exists()):
+            raise RuntimeError(_unreachable_message(
+                fac, detail or f"ssh exited {result.returncode}"))
         raise RuntimeError(detail or f"command exited with code {result.returncode}")
     output = result.stdout or ""
     if len(output) > OUTPUT_LIMIT_BYTES:

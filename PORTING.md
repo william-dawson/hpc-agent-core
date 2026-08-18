@@ -232,6 +232,14 @@ FACILITY = config.register_facility(
     embed_base_url="http://llm.ai.r-ccs.riken.jp:11434/v1",  # shared RIKEN endpoint, or your own
     embed_model="bge-m3:567m",
     docs_cite_url="",                  # leave blank unless you decided otherwise in §3
+
+    # --- Required: what an unconfigured user is told (see §5a) ---
+    config_example={"ssh": {"host": "mymachine"}},   # + any extra key your machine requires
+    setup_help=(
+        "How a key gets registered, the real login hostname, and anything\n"
+        "else that must be true before the first connection can work."
+    ),
+
     # facts_filename="mymachine_config.json",   # default: "<slug>_config.json" — override
     #                                              only if reusing a differently-named file
     # docs_filename="mymachine_guide.md",       # default: "<slug>_guide.md" — same idea
@@ -247,8 +255,44 @@ address) for running directly on the cluster's own front-end/login node
 with no SSH at all — `middleware.get_frontend()` is deliberately uncached
 specifically so a config file edit (e.g. switching to/from `"localhost"`)
 takes effect on the next tool call, not just after a full server restart.
-Your `hpc-configuring` skill guidance already covers this generically —
-you don't need facility-specific configuring skill text at all.
+
+### 5a. `config_example` and `setup_help` — the cold-start path
+
+These two are not optional polish. They are what a user gets when they say
+*"I want to use this machine"* and nothing is set up yet.
+
+**Every tool call that needs the cluster returns your facility's full setup
+directions when it can't connect** — not a bare SSH error.
+`config.setup_instructions()` composes them in one consistent shape for
+every facility: what's wrong, the exact file to create, your
+`config_example` rendered as copy-pasteable JSON, your `setup_help`, how to
+verify, and the name of your `<slug>-configuring` skill. This fires both
+when no config file exists *and* when one exists but the connection fails
+(a wrong host or an unregistered key needs the same fix, and a bare
+"Permission denied" tells a new user nothing about where the setting
+lives).
+
+The same two values are rendered into your generated `<slug>-configuring`
+skill via `{{CONFIG_EXAMPLE}}`/`{{SETUP_HELP}}` (§7), so the directions a
+user reads in the skill and the ones a failing tool prints are the same
+text by construction.
+
+Write `setup_help` as a few short imperative lines covering only what's
+machine-specific: where a public key gets registered (portal name or URL),
+the real login hostname, and any extra config key your machine requires.
+`config_example` must include every key needed for a *working* setup — if
+your machine requires a project account, put it in the example, because
+that JSON is what the user will copy.
+
+What not to put there: anything generic (the config file's location, how to
+verify, the skill name) is already supplied around your text. Keep it to
+what only you know.
+
+Tool calls that don't need the cluster — `get_facilities`,
+`get_facility`, `search_docs` — must keep working with no config at all, so
+an agent can still orient a user before any setup happens. That falls out
+of the lazy-connection design; `tests/conformance.py` asserts it per
+facility so it stays true.
 
 ## 6. Wire up `facility.py` — the scheduler backend
 
@@ -429,6 +473,14 @@ string replacement):
 | `{{DISPLAY_NAME}}` | The facility's `display_name` from `facility.json`. |
 | `{{ENV_PREFIX}}` | `slug`, uppercased with hyphens turned to underscores, e.g. `rccs-cloud` → `RCCS_CLOUD` — matches the env var prefix `config.py` actually uses. |
 | `{{CONFIG_STEM}}` | `{{ENV_PREFIX}}` lowercased — the config filename stem, e.g. `~/.hpc-agent/rccs_cloud.json`. |
+| `{{CONFIG_EXAMPLE}}` | Your registered `config_example` as formatted JSON (§5a). **Template-only.** |
+| `{{SETUP_HELP}}` | Your registered `setup_help` text (§5a). **Template-only.** |
+
+The last two come from your `register_facility(...)` call rather than from
+`facility.json`, deliberately: the same two values are what an unconfigured
+tool call returns at runtime, so sourcing the skill from them means the
+setup directions a user reads and the ones a failing tool prints cannot
+drift apart. Don't hardcode a config example in a template.
 
 **These same four scalar tokens (not `{{FACILITY_NOTES}}`) also work inside
 your own `skill_notes/*.md` files**, not just inside a template — the

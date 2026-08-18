@@ -41,6 +41,22 @@ FACILITY = config.register_facility(
     embed_base_url="http://llm.ai.r-ccs.riken.jp:11434/v1",  # shared RIKEN R-CCS endpoint
     embed_model="bge-m3:567m",
     docs_cite_url="",  # RIKYU is in Early Access; leave blank per PORTING.md
+    config_example={"ssh": {"host": "rikyu"}},
+    setup_help=(
+        "RIKYU accepts key-based SSH only. Generate a key if you don't have\n"
+        "one (Ed25519 recommended; ECDSA P-521 or RSA >=2048 also accepted)\n"
+        "and register the public key through RIKYU's Open OnDemand web portal\n"
+        "on its 'SSH Public Key' page before the first login. Then add a\n"
+        "'rikyu' alias to ~/.ssh/config pointing at\n"
+        "login.rikyu.r-ccs.riken.jp, or set ssh.host to\n"
+        "user@login.rikyu.r-ccs.riken.jp.\n"
+        "If you belong to more than one RIKYU project, also add\n"
+        "\"defaults\": {\"account\": \"<project>\"} — otherwise sbatch rejects\n"
+        "jobs that don't name one. get_projects lists the projects you can\n"
+        "charge once the connection works.\n"
+        "Running on a RIKYU front-end node instead of a laptop? Use\n"
+        "\"host\": \"localhost\" and no SSH key is needed at all."
+    ),
 )
 
 

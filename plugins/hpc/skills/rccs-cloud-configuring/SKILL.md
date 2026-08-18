@@ -11,12 +11,26 @@ vars `RCCS_CLOUD_HOST` and `RCCS_CLOUD_EMBED_API_KEY` override the
 file; the embedding key also falls back to a shared `RCCS_EMBED_API_KEY`
 env var if several facilities share the same endpoint.
 
+The file this facility needs (add `"embedding": {"api_key": "..."}` too if
+docs search should use vector rather than keyword matching):
+
 ```json
 {
-  "ssh": {"host": "rccs-cloud"},
-  "embedding": {"api_key": "..."}
+  "ssh": {
+    "host": "rccs-cloud"
+  }
 }
 ```
+
+## What must be true before it can connect
+
+The R-CCS Cloud accepts key-based SSH only. Add an 'rccs-cloud'
+alias to ~/.ssh/config pointing at login.cloud.r-ccs.riken.jp with
+your key, or set ssh.host to user@login.cloud.r-ccs.riken.jp.
+No project account is needed — jobs without one use your default
+Slurm account.
+Running on an R-CCS Cloud front-end node instead of a laptop? Use
+"host": "localhost" and no SSH key is needed at all.
 
 ## Guided setup — interview the user, then write the file
 

@@ -91,6 +91,15 @@ class Facility:
     facts_filename: str = ""
     docs_cite_url: str = ""
     computer_defaults: dict = field(default_factory=dict)
+    #: The exact JSON an unconfigured user should write, as a dict. Rendered
+    #: into the setup directions every tool returns when this facility isn't
+    #: reachable yet — so it must be genuinely copy-pasteable, including any
+    #: extra keys this machine requires beyond ssh.host.
+    config_example: dict = field(default_factory=dict)
+    #: Machine-specific setup prose for those same directions: where a key
+    #: gets registered, the real login hostname, anything that must be true
+    #: before the first connection can work. A few short lines, imperative.
+    setup_help: str = ""
 
     @property
     def env_prefix(self) -> str:
@@ -106,7 +115,9 @@ def register_facility(*, slug: str, display_name: str, description: str,
                        docs_filename: str | None = None,
                        facts_filename: str | None = None,
                        docs_cite_url: str = "",
-                       computer_defaults: dict | None = None) -> Facility:
+                       computer_defaults: dict | None = None,
+                       config_example: dict | None = None,
+                       setup_help: str = "") -> Facility:
     """Register a facility. Call exactly once per slug, at import time,
     before any other hpc_agent_core module is used for that facility.
 
@@ -139,6 +150,8 @@ def register_facility(*, slug: str, display_name: str, description: str,
         facts_filename=facts_filename or f"{slug.replace('-', '_')}_config.json",
         docs_cite_url=docs_cite_url,
         computer_defaults=dict(computer_defaults or {}),
+        config_example=dict(config_example or {"ssh": {"host": default_host}}),
+        setup_help=setup_help.strip(),
     )
     _REGISTRY[slug] = fac
     return fac
@@ -181,6 +194,50 @@ def config_path(facility: "Facility | str") -> Path:
     if env_override:
         return Path(env_override).expanduser()
     return Path(f"~/.hpc-agent/{fac.env_prefix.lower()}.json").expanduser()
+
+
+def setup_instructions(facility: "Facility | str", *, problem: str = "",
+                        ssh_error: str = "") -> str:
+    """The setup directions any tool returns when a facility can't be reached.
+
+    Composed here, in one place, so every facility's directions have the
+    same shape — what's wrong, the exact file to write, the machine's own
+    prerequisites, how to verify, and which skill walks through it
+    interactively. The machine-specific parts come from that facility's
+    registered `config_example` and `setup_help`; nothing here is
+    hardcoded per machine.
+
+    This is what an agent shows a user who says "I want to use this
+    machine" before anything is set up, so it has to be actionable on its
+    own — not a pointer to documentation the agent may not be able to open.
+    """
+    fac = resolve(facility)
+    example = json.dumps(fac.config_example, indent=2)
+    lines = [
+        problem or f"Facility {fac.slug!r} ({fac.display_name}) is not configured yet, "
+                    f"so this call cannot reach the cluster.",
+        "",
+        f"1. Create {config_path(fac)} containing:",
+        "",
+        *(f"     {line}" for line in example.splitlines()),
+        "",
+    ]
+    if fac.setup_help:
+        lines += ["2. " + fac.setup_help.splitlines()[0],
+                  *(f"   {line}" for line in fac.setup_help.splitlines()[1:]),
+                  ""]
+        step = 3
+    else:
+        step = 2
+    lines += [
+        f"{step}. Verify with:  hpc-doctor {fac.slug}",
+        "",
+        f"The {fac.slug}-configuring skill walks through this interactively, "
+        f"and can write the file for you.",
+    ]
+    if ssh_error:
+        lines += ["", f"Underlying connection error: {ssh_error}"]
+    return "\n".join(lines)
 
 
 def file_config(facility: "Facility | str") -> dict:

@@ -11,12 +11,30 @@ vars `HOKUSAI_HOST` and `HOKUSAI_EMBED_API_KEY` override the
 file; the embedding key also falls back to a shared `RCCS_EMBED_API_KEY`
 env var if several facilities share the same endpoint.
 
+The file this facility needs (add `"embedding": {"api_key": "..."}` too if
+docs search should use vector rather than keyword matching):
+
 ```json
 {
-  "ssh": {"host": "hokusai"},
-  "embedding": {"api_key": "..."}
+  "ssh": {
+    "host": "hokusai"
+  },
+  "defaults": {
+    "account": "RB99999"
+  }
 }
 ```
+
+## What must be true before it can connect
+
+HBW2 accepts key-based SSH only — there are no password prompts.
+Register your public key at https://hokusai.riken.jp/hbw2/ before the
+first login, then either add a 'hokusai' alias to ~/.ssh/config
+pointing at hokusai.riken.jp, or set ssh.host to user@hokusai.riken.jp.
+Set defaults.account to the project to bill: every HBW2 job requires
+one (RIKEN IDs start RB, HPCI-derived ones start HP).
+Running on an HBW2 front-end node instead of a laptop? Use
+"host": "localhost" and no SSH key is needed at all.
 
 ## Guided setup — interview the user, then write the file
 

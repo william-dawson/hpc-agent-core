@@ -157,10 +157,46 @@ def check_facility(slug: str) -> None:
         assert backend.facility == slug, \
             f"backend.facility is {backend.facility!r}, expected {slug!r}"
 
+    def setup_directions_are_actionable():
+        """What a user gets when they say "I want to use this machine" and
+        nothing is configured. It has to stand on its own: the agent may
+        not be able to open any other file, so the directions must name the
+        config file, show what to put in it, and cover this machine's own
+        prerequisites."""
+        assert fac.setup_help.strip(), (
+            "no setup_help registered — an unconfigured user would get generic "
+            "directions with nothing machine-specific (how to get a key "
+            "registered, the real login hostname, any required account)"
+        )
+        assert fac.config_example, "no config_example registered"
+        assert "ssh" in fac.config_example, "config_example has no ssh section"
+
+        with no_user_config(slug):
+            text = config.setup_instructions(slug)
+            expected_path = str(config.config_path(slug))
+        assert expected_path in text, "directions omit the config file path"
+        assert f"{slug}-configuring" in text, "directions don't name the configuring skill"
+        assert "hpc-doctor" in text, "directions don't say how to verify"
+        assert fac.setup_help.splitlines()[0] in text, "setup_help didn't reach the directions"
+        # The example must be valid, copy-pasteable JSON.
+        import json as _json
+        _json.loads(_json.dumps(fac.config_example))
+
+    def unconfigured_tools_still_answer():
+        """The never-fail invariant, at tool granularity: everything that
+        doesn't need the cluster must keep working with no config at all,
+        so an agent can still orient the user before setup."""
+        with no_user_config(slug):
+            assert config.load_facts(slug), "get_facility would fail unconfigured"
+            assert config.docs_source(slug).exists(), "guide unreadable unconfigured"
+            assert fac.display_name and fac.description, "get_facilities would be degraded"
+
     print(f"\n=== {slug} ({fac.display_name}) ===")
     check("registration is complete", registration_is_complete)
     check("facts JSON loads", facts_load)
     check("backend is bound to this facility", backend_knows_its_facility)
+    check("setup directions are machine-specific and actionable", setup_directions_are_actionable)
+    check("no-config tools still answer (never-fail invariant)", unconfigured_tools_still_answer)
     check("apply_defaults is idempotent", apply_defaults_is_idempotent)
     check("apply_defaults never overwrites caller values", explicit_values_survive_defaults)
     check("defaults -> validate -> render, or an actionable error", defaults_then_validate_then_render)

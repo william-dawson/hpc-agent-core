@@ -11,12 +11,32 @@ vars `RIKYU_HOST` and `RIKYU_EMBED_API_KEY` override the
 file; the embedding key also falls back to a shared `RCCS_EMBED_API_KEY`
 env var if several facilities share the same endpoint.
 
+The file this facility needs (add `"embedding": {"api_key": "..."}` too if
+docs search should use vector rather than keyword matching):
+
 ```json
 {
-  "ssh": {"host": "rikyu"},
-  "embedding": {"api_key": "..."}
+  "ssh": {
+    "host": "rikyu"
+  }
 }
 ```
+
+## What must be true before it can connect
+
+RIKYU accepts key-based SSH only. Generate a key if you don't have
+one (Ed25519 recommended; ECDSA P-521 or RSA >=2048 also accepted)
+and register the public key through RIKYU's Open OnDemand web portal
+on its 'SSH Public Key' page before the first login. Then add a
+'rikyu' alias to ~/.ssh/config pointing at
+login.rikyu.r-ccs.riken.jp, or set ssh.host to
+user@login.rikyu.r-ccs.riken.jp.
+If you belong to more than one RIKYU project, also add
+"defaults": {"account": "<project>"} — otherwise sbatch rejects
+jobs that don't name one. get_projects lists the projects you can
+charge once the connection works.
+Running on a RIKYU front-end node instead of a laptop? Use
+"host": "localhost" and no SSH key is needed at all.
 
 ## Guided setup — interview the user, then write the file
 

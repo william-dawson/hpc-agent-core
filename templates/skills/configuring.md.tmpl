@@ -11,12 +11,16 @@ vars `{{ENV_PREFIX}}_HOST` and `{{ENV_PREFIX}}_EMBED_API_KEY` override the
 file; the embedding key also falls back to a shared `RCCS_EMBED_API_KEY`
 env var if several facilities share the same endpoint.
 
+The file this facility needs (add `"embedding": {"api_key": "..."}` too if
+docs search should use vector rather than keyword matching):
+
 ```json
-{
-  "ssh": {"host": "{{SLUG}}"},
-  "embedding": {"api_key": "..."}
-}
+{{CONFIG_EXAMPLE}}
 ```
+
+## What must be true before it can connect
+
+{{SETUP_HELP}}
 
 ## Guided setup — interview the user, then write the file
 

@@ -38,6 +38,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+import hpc_mcp  # noqa: E402,F401 -- import registers every facility
+from hpc_agent_core import config as _config  # noqa: E402
+
 TEMPLATES_DIR = ROOT / "templates" / "skills"
 SKILLS_DIR = ROOT / "plugins" / "hpc" / "skills"
 
@@ -69,7 +73,20 @@ def render_one(template_text: str, fac: dict, workflow: str) -> str:
     # Reversing this order would silently leave those tokens unreplaced
     # inside notes content, since the scalar pass would already be done by
     # the time notes text enters the string.
+    # CONFIG_EXAMPLE and SETUP_HELP come from the live registration rather
+    # than facility.json, so the configuring skill shows byte-for-byte the
+    # same JSON and prerequisites that an unconfigured tool call returns at
+    # runtime (config.setup_instructions). Hardcoding them in the template
+    # is how those two drift apart.
+    registered = _config.get_facility(slug)
+    config_example = json.dumps(registered.config_example, indent=2)
+    setup_help = registered.setup_help or (
+        "_No machine-specific setup notes registered for this facility._"
+    )
+
     text = template_text.replace("{{FACILITY_NOTES}}", notes)
+    text = text.replace("{{CONFIG_EXAMPLE}}", config_example)
+    text = text.replace("{{SETUP_HELP}}", setup_help)
     text = text.replace("{{SLUG}}", slug)
     text = text.replace("{{DISPLAY_NAME}}", fac["display_name"])
     text = text.replace("{{ENV_PREFIX}}", env_prefix)
