@@ -324,6 +324,34 @@ port with genuinely empty `skill_notes/` for `submitting-jobs` is an
 unfinished port, not a complete one — that file is normally the single most
 valuable thing your PR contributes.
 
+#### Placeholder tokens
+
+A template (`templates/skills/<workflow>.md.tmpl`) is plain markdown with
+literal `{{TOKEN}}` placeholders, resolved by simple text substitution
+(`scripts/render_skills.py` — no templating engine, no logic, just
+string replacement):
+
+| Token | Resolves to |
+|---|---|
+| `{{FACILITY_NOTES}}` | The full contents of your `skill_notes/<workflow>.md` (or the fallback stub if that file doesn't exist yet). **Template-only** — has no meaning inside a `skill_notes/` file itself; writing it there just passes through as literal text, it is not substituted again. |
+| `{{SLUG}}` | The facility's registered slug, e.g. `rikyu`. |
+| `{{DISPLAY_NAME}}` | The facility's `display_name` from `facility.json`. |
+| `{{ENV_PREFIX}}` | `slug`, uppercased with hyphens turned to underscores, e.g. `rccs-cloud` → `RCCS_CLOUD` — matches the env var prefix `config.py` actually uses. |
+| `{{CONFIG_STEM}}` | `{{ENV_PREFIX}}` lowercased — the config filename stem, e.g. `~/.hpc-agent/rccs_cloud.json`. |
+
+**These same four scalar tokens (not `{{FACILITY_NOTES}}`) also work inside
+your own `skill_notes/*.md` files**, not just inside a template — the
+generator substitutes `{{FACILITY_NOTES}}` into the template first, then
+resolves `{{SLUG}}`/`{{DISPLAY_NAME}}`/`{{ENV_PREFIX}}`/`{{CONFIG_STEM}}`
+across the *whole* assembled text, your notes included. Use them for
+anything that would otherwise mean hardcoding your own slug repeatedly —
+e.g. write `` `facility="{{SLUG}}"` `` in an example rather than typing the
+literal slug by hand, so the example can't drift out of sync with
+`facility.json` if the slug ever changes. (You don't have to use them —
+the two facilities onboarded so far wrote the literal slug directly in
+every example instead, which is equally correct, just a little more
+typing. Either is fine; pick whichever you find more readable.)
+
 After adding or editing anything under `skill_notes/`, regenerate:
 
 ```bash

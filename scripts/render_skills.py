@@ -62,12 +62,18 @@ def render_one(template_text: str, fac: dict, workflow: str) -> str:
     env_prefix = slug.upper().replace("-", "_")
     notes_path = fac["_dir"] / "skill_notes" / f"{workflow}.md"
     notes = notes_path.read_text().rstrip() if notes_path.exists() else _FALLBACK_NOTES.format(slug=slug)
-    text = template_text
+    # {{FACILITY_NOTES}} is substituted FIRST, before the scalar placeholders
+    # below — so {{SLUG}}/{{DISPLAY_NAME}}/{{ENV_PREFIX}}/{{CONFIG_STEM}}
+    # also resolve if a facility's own skill_notes/*.md writes them (natural
+    # for DRY-ness, e.g. `facility="{{SLUG}}"` instead of a hardcoded slug).
+    # Reversing this order would silently leave those tokens unreplaced
+    # inside notes content, since the scalar pass would already be done by
+    # the time notes text enters the string.
+    text = template_text.replace("{{FACILITY_NOTES}}", notes)
     text = text.replace("{{SLUG}}", slug)
     text = text.replace("{{DISPLAY_NAME}}", fac["display_name"])
     text = text.replace("{{ENV_PREFIX}}", env_prefix)
     text = text.replace("{{CONFIG_STEM}}", env_prefix.lower())
-    text = text.replace("{{FACILITY_NOTES}}", notes)
     return text
 
 
