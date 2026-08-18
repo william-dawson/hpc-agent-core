@@ -39,7 +39,7 @@ def check_config_file(facility: str) -> bool:
               f"(using env vars / defaults — the configuring skill can create it)")
         return True
     try:
-        config._file_config(facility)
+        config.file_config(facility)
     except RuntimeError as e:
         print(f"{FAIL} config file: {e}")
         return False

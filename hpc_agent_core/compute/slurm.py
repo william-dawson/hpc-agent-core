@@ -303,18 +303,32 @@ class SlurmBackend(SchedulerBackend):
         return {"job_id": job_id, "script_path": script_path}
 
     def _scontrol_fallback(self, job_id: str) -> Job:
-        """scontrol show job <id> — the has_accounting=False fallback for a
-        job not found live in squeue."""
-        scontrol_out = run_command(self.facility, f"scontrol show job {shlex.quote(job_id)}")
+        """`scontrol show job <id>` for a job the primary query didn't find.
+
+        Used on both paths: as the has_accounting=False fallback after
+        squeue, and on the accounting path to cover sacct's lag behind
+        sbatch (see get_statuses). scontrol errors rather than printing
+        "invalid job id" on some Slurm builds, so the call itself is
+        guarded.
+        """
+        try:
+            scontrol_out = run_command(self.facility, f"scontrol show job {shlex.quote(job_id)}")
+        except RuntimeError:
+            scontrol_out = ""
         job = _parse_scontrol_show_job(scontrol_out)
         if job:
             return job
+        detail = (
+            "Slurm keeps a finished job in scontrol only briefly (~MinJobAge), "
+            "and this facility has no accounting database behind it, so there "
+            "is no further history."
+            if not self.has_accounting else
+            "It is in neither the accounting database nor scontrol's "
+            "short-lived record — check the job id."
+        )
         return Job(id=job_id, status=JobStatus(
             state=JobState.UNKNOWN,
-            message="Not found in squeue or scontrol. This facility has no "
-                    "Slurm accounting, so a job aged out of scontrol's "
-                    "short-lived record (~MinJobAge after completion) has no "
-                    "further history.",
+            message=f"Job {job_id} not found. {detail}",
         ))
 
     def _get_status_no_accounting(self, job_id: str) -> Job:
@@ -348,14 +362,36 @@ class SlurmBackend(SchedulerBackend):
         return [live[jid] if jid in live else self._scontrol_fallback(jid) for jid in job_ids]
 
     def get_statuses(self, job_ids: list[str]) -> list[Job]:
-        """Fetch normalized statuses for one or more jobs."""
+        """Fetch normalized statuses for one or more jobs.
+
+        On an accounting facility, any requested id sacct doesn't know about
+        falls back to `scontrol show job` before being reported missing.
+        This is not a niche path: **sacct trails sbatch by a second or two**,
+        so a `get_job_status` fired immediately after `submit_job` — the most
+        natural thing an agent does — can otherwise fail with "job not found"
+        for a job that definitively exists and whose id sbatch just returned.
+        Observed live on HBW2 (job 9041526: absent from sacct at submit+~0s,
+        present as PENDING moments later) and independently documented as a
+        known quirk on the R-CCS Cloud. scontrol knows a queued job
+        immediately, so it closes the window; a genuinely unknown id still
+        ends up reported as UNKNOWN by _scontrol_fallback rather than
+        silently dropped.
+        """
         if not self.has_accounting:
             return self._get_statuses_no_accounting(job_ids)
         ids = ",".join(shlex.quote(j) for j in job_ids)
         output = run_command(
             self.facility, f"sacct --jobs={ids} --format={_SACCT_FIELDS} --parsable2 --noheader"
         )
-        return self._attach_reasons(_parse_sacct(output))
+        found = {j.id: j for j in _parse_sacct(output)}
+        missing = [jid for jid in job_ids if jid not in found]
+        for jid in missing:
+            found[jid] = self._scontrol_fallback(jid)
+        # Preserve the caller's requested order; include anything sacct
+        # returned that wasn't explicitly asked for (job steps are already
+        # filtered out by _parse_sacct) only if job_ids was empty.
+        ordered = [found[jid] for jid in job_ids if jid in found] if job_ids else list(found.values())
+        return self._attach_reasons(ordered)
 
     def get_recent_statuses(self, since: str = "now-2days") -> list[Job]:
         """Statuses of the current user's jobs since the given time.
@@ -387,6 +423,43 @@ class SlurmBackend(SchedulerBackend):
             return self._get_status_no_accounting(job_id)
         jobs = self.get_statuses([job_id])
         return jobs[0] if jobs else f"scancel sent; job {job_id} not found in sacct"
+
+    def get_projects(self) -> list[dict]:
+        """Slurm accounts the current user may charge, with the partitions
+        and QOS each association allows, via `sacctmgr show associations`.
+
+        Requires accounting — a has_accounting=False facility has no
+        sacctmgr to ask, so this raises rather than returning a misleading
+        empty list. A facility that exposes more than the associations
+        (e.g. HBW2 adds `sshare` fair-share standing) overrides this and
+        can call super().get_projects() for this base result.
+        """
+        if not self.has_accounting:
+            raise NotImplementedError(
+                f"Facility {self.facility!r} has no Slurm accounting, so there "
+                "are no per-project accounts to list."
+            )
+        output = run_command(
+            self.facility,
+            "sacctmgr --noheader --parsable2 show associations "
+            "where user=$USER format=Account,Partition,QOS",
+        )
+        projects: dict[str, dict] = {}
+        for line in output.strip().splitlines():
+            parts = line.split("|")
+            if not parts or not parts[0]:
+                continue
+            entry = projects.setdefault(
+                parts[0], {"account": parts[0], "partitions": set(), "qos": set()}
+            )
+            if len(parts) > 1 and parts[1]:
+                entry["partitions"].add(parts[1])
+            if len(parts) > 2 and parts[2]:
+                entry["qos"].update(q for q in parts[2].split(",") if q)
+        return [
+            {"account": acct, "partitions": sorted(e["partitions"]), "qos": sorted(e["qos"])}
+            for acct, e in sorted(projects.items())
+        ]
 
     def get_live_resources(self) -> list[dict]:
         """Live per-partition node occupancy via `sinfo --summarize`.

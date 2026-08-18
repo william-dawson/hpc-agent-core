@@ -98,38 +98,32 @@ def get_drained_nodes(facility: str) -> list[dict]:
     return get_backend(facility).get_drained_nodes()
 
 
-def _parse_projects(output: str) -> list[dict]:
-    projects = []
-    for line in output.strip().splitlines():
-        parts = line.split("|")
-        if len(parts) < 18 or parts[0] == "Cluster":
-            continue
-        projects.append({
-            "id": parts[1],
-            "cluster": parts[0],
-            "user": parts[2],
-            "qos": parts[17] or None,
-        })
-    return projects
-
-
 @mcp.tool()
 def get_projects(facility: str) -> list[dict]:
-    """List projects (Slurm accounts) the current user belongs to on this
-    facility. (IRI: GET /account/projects) Each project's id is the account
-    name usable in JobAttributes.account. Requires Slurm accounting
-    (has_accounting=True) — not every facility has it."""
-    output = run_command(facility, "sacctmgr show associations user=$USER --parsable2 --noheader")
-    return _parse_projects(output)
+    """Projects (scheduler accounts) the current user may charge on this
+    facility, each with the partitions and QOS it allows.
+    (IRI: GET /account/projects)
+
+    Each entry's `account` is what goes in a JobSpec's
+    `attributes.account`. Some facilities return more than the bare
+    associations — e.g. a facility with fair-share scheduling also reports
+    the standing that governs when a queued job actually starts. Requires
+    per-project accounting; a facility without it raises a clear error.
+    """
+    return get_backend(facility).get_projects()
 
 
 @mcp.tool()
-def get_project(facility: str, project_id: str) -> dict:
-    """Details for a single project (Slurm account). (IRI: GET /account/projects/{id})"""
-    for p in get_projects(facility):
-        if p["id"] == project_id:
+def get_project(facility: str, account: str) -> dict:
+    """Details for a single project/account.
+    (IRI: GET /account/projects/{id})"""
+    for p in get_backend(facility).get_projects():
+        if p["account"] == account:
             return p
-    raise ValueError(f"Project {project_id!r} not found for current user on facility {facility!r}")
+    raise ValueError(
+        f"Account {account!r} is not one the current user can charge on facility "
+        f"{facility!r}. Call get_projects to see the available accounts."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -137,23 +131,37 @@ def get_project(facility: str, project_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
+def render_job_script(facility: str, spec: JobSpec) -> str:
+    """Render the batch script for a JobSpec *without* submitting it, with
+    that facility's defaults already applied. Use this to show the user
+    exactly what will run before calling submit_job (the "show before you
+    run" rule) — it costs nothing and touches no scheduler.
+    (Extension — no IRI counterpart.)
+    """
+    backend = get_backend(facility)
+    backend.apply_defaults(spec)
+    backend.validate_spec(spec)
+    return backend.render_script(spec)
+
+
+@mcp.tool()
 def submit_job(facility: str, spec: JobSpec) -> dict:
     """Submit a job to a facility's scheduler. Show the user the spec
-    before submitting unless they asked to just run it. If
-    spec.attributes.queue_name is left blank and the facility has a
-    sensible default partition, it's filled in automatically; some
-    facilities (e.g. a heterogeneous cluster with no single default) require
-    it to be set explicitly. (IRI: POST /compute/job)
+    before submitting unless they asked to just run it — use
+    render_job_script for an exact preview.
+
+    Facility defaults are filled in first: a facility with one obvious
+    partition supplies it when spec.attributes.queue_name is blank, and a
+    facility that requires a project/account supplies the user's configured
+    default (raising a clear, actionable error if none can be resolved).
+    (IRI: POST /compute/job)
 
     Args:
         facility: Facility slug, e.g. "rikyu". See get_facilities().
         spec: The job to submit.
     """
     backend = get_backend(facility)
-    if not spec.attributes.queue_name:
-        default = backend.default_queue_name()
-        if default:
-            spec.attributes.queue_name = default
+    backend.apply_defaults(spec)
     backend.validate_spec(spec)
     return backend.submit(spec)
 

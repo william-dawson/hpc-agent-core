@@ -1,76 +1,130 @@
-"""Live, read-only-by-default smoke test for the unified multi-facility
-server, run over real MCP stdio against both onboarded facilities.
+"""Live smoke test for the unified multi-facility server, over real MCP stdio.
 
-    .venv/bin/python tests/live_smoke.py            # read-only
-    .venv/bin/python tests/live_smoke.py --job       # + submits a real tiny job on rikyu
+The read-only tier is facility-agnostic: it iterates whatever
+get_facilities() reports, so a newly onboarded facility is exercised the
+moment it's registered — nothing here to update per facility.
 
-Needs a working ~/.hpc-agent/{rikyu,rccs_cloud}.json and real SSH access.
+    .venv/bin/python tests/live_smoke.py                    # read-only, every facility
+    .venv/bin/python tests/live_smoke.py --job rikyu        # + submit a real job there
+    .venv/bin/python tests/live_smoke.py --job hokusai --account rb230090
+
+Needs a working ~/.hpc-agent/<slug>.json and real SSH access for each
+registered facility.
 """
+import argparse
 import asyncio
-import sys
 import time
 
 from hpc_agent_core.client import connect, dev_params
 
+#: Per-facility job spec for the --job tier. A facility absent from here can
+#: still be job-tested by passing --partition/--account explicitly; this just
+#: holds a known-good, deliberately tiny default per facility.
+JOB_DEFAULTS = {
+    "rikyu": {"queue_name": "gpu", "gpus": 1},
+    "hokusai": {"queue_name": "mpc"},
+    "rccs-cloud": {"queue_name": "genoa"},
+}
 
-async def main(submit_job: bool) -> None:
+
+async def read_only_tier(hpc, docs_hpc) -> list[str]:
+    tools = await hpc.session.list_tools()
+    names = sorted(t.name for t in tools.tools)
+    print(f"{len(names)} tools registered: {names}")
+    for required in ("get_facilities", "submit_job", "render_job_script", "get_projects"):
+        assert required in names, f"missing tool: {required}"
+
+    facilities = await hpc.get_facilities()
+    slugs = sorted(f["slug"] for f in facilities)
+    assert slugs, "no facilities registered"
+    print(f"\nfacilities: {slugs}")
+
+    for slug in slugs:
+        res = await hpc.get_resources(facility=slug)
+        assert isinstance(res, list) and res, f"{slug}: no partitions returned"
+        print(f"\n[{slug}] get_resources: {len(res)} partitions, e.g. {res[0]}")
+
+        fac = await hpc.get_facility(facility=slug)
+        assert fac, f"{slug}: empty facility facts"
+        print(f"[{slug}] get_facility keys: {list(fac.keys())[:5]}")
+
+        projects = await hpc.get_projects(facility=slug)
+        print(f"[{slug}] get_projects: {[p['account'] for p in projects]}")
+
+        docs = await docs_hpc.search_docs(facility=slug, query="how do I submit a job")
+        assert docs.strip(), f"{slug}: empty docs result"
+        print(f"[{slug}] search_docs: {docs[:70]!r}...")
+
+    try:
+        await hpc.get_resources(facility="not-a-real-facility")
+        raise AssertionError("expected an error for an unknown facility")
+    except Exception as e:
+        assert "Unknown facility" in str(e), e
+        print(f"\nunknown-facility error path OK")
+    return slugs
+
+
+async def job_tier(hpc, slug: str, account: str | None) -> None:
+    defaults = JOB_DEFAULTS.get(slug, {})
+    resources = {"node_count": 1, "processes_per_node": 1}
+    if defaults.get("gpus"):
+        resources["gpus"] = defaults["gpus"]
+    attributes = {"duration": 300}
+    if defaults.get("queue_name"):
+        attributes["queue_name"] = defaults["queue_name"]
+    if account:
+        attributes["account"] = account
+
+    spec = {
+        "name": "hub-smoke",
+        "executable": "echo",
+        "arguments": ["hub-smoke-ok"],
+        "resources": resources,
+        "attributes": attributes,
+    }
+
+    # render first — proves apply_defaults/validate_spec run without spending
+    # anything, and shows exactly what is about to be submitted.
+    script = await hpc.render_job_script(facility=slug, spec=spec)
+    print(f"\n[{slug}] rendered script:\n{script}")
+
+    print(f"[{slug}] submitting real job ...")
+    result = await hpc.submit_job(facility=slug, spec=spec)
+    job_id = result["job_id"]
+    print(f"[{slug}] submitted: {result}")
+
+    state = None
+    start = time.monotonic()
+    while time.monotonic() - start < 600:
+        status = await hpc.get_job_status(facility=slug, job_id=job_id)
+        state = status["status"]["state"]
+        print(f"  state: {state}")
+        if state in ("completed", "failed", "canceled"):
+            break
+        await asyncio.sleep(10)
+    assert state == "completed", status
+
+    out = await hpc.fs_tail(facility=slug, path=f"slurm-{job_id}.out")
+    print(f"[{slug}] output tail: {out.strip()!r}")
+    assert "hub-smoke-ok" in out, out
+
+
+async def main(job_facility: str | None, account: str | None) -> None:
     async with connect(dev_params("hpc_mcp", "hpc_server"), mode="live") as hpc, \
                connect(dev_params("hpc_mcp", "docs_server"), mode="live") as docs_hpc:
-        tools = await hpc.session.list_tools()
-        names = sorted(t.name for t in tools.tools)
-        print(f"{len(names)} tools registered: {names}")
-        assert "get_facilities" in names and "submit_job" in names
-
-        facilities = await hpc.get_facilities()
-        slugs = sorted(f["slug"] for f in facilities)
-        print("facilities:", slugs)
-        assert slugs == ["rccs-cloud", "rikyu"], slugs
-
-        for slug in slugs:
-            res = await hpc.get_resources(facility=slug)
-            print(f"[{slug}] get_resources: {len(res)} partitions, "
-                  f"e.g. {res[0] if res else None}")
-            assert isinstance(res, list) and res
-
-            fac = await hpc.get_facility(facility=slug)
-            print(f"[{slug}] get_facility keys: {list(fac.keys())[:5]}")
-
-            docs = await docs_hpc.search_docs(facility=slug, query="how do I submit a job")
-            print(f"[{slug}] search_docs: {docs[:80]!r}...")
-
-        try:
-            await hpc.get_resources(facility="not-a-real-facility")
-            raise AssertionError("expected ValueError for unknown facility")
-        except Exception as e:
-            assert "Unknown facility" in str(e), e
-            print("unknown-facility error path OK:", str(e)[:100])
-
-        if submit_job:
-            spec = {
-                "name": "hub-smoke",
-                "executable": "echo",
-                "arguments": ["hub-smoke-ok"],
-                "resources": {"gpus": 1, "node_count": 1, "processes_per_node": 1},
-                "attributes": {"queue_name": "gpu", "duration": 300, "account": "rkp00012"},
-            }
-            print("submitting real job on rikyu ...")
-            result = await hpc.submit_job(facility="rikyu", spec=spec)
-            job_id = result["job_id"]
-            print("submitted:", result)
-            start = time.monotonic()
-            while time.monotonic() - start < 300:
-                status = await hpc.get_job_status(facility="rikyu", job_id=job_id)
-                state = status["status"]["state"]
-                print("  state:", state)
-                if state in ("completed", "failed", "canceled"):
-                    break
-                await asyncio.sleep(10)
-            assert state == "completed", status
-            out = await hpc.fs_tail(facility="rikyu", path=f"slurm-{job_id}.out")
-            print("output tail:", out[-300:])
-
+        slugs = await read_only_tier(hpc, docs_hpc)
+        if job_facility:
+            assert job_facility in slugs, f"{job_facility!r} is not registered (have {slugs})"
+            await job_tier(hpc, job_facility, account)
         print("\nALL LIVE CHECKS PASSED")
 
 
 if __name__ == "__main__":
-    asyncio.run(main(submit_job="--job" in sys.argv))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--job", metavar="FACILITY", default=None,
+                         help="Also submit a real, tiny job on this facility.")
+    parser.add_argument("--account", default=None,
+                         help="Project/account to charge for --job (needed where "
+                              "the facility requires one and no default is configured).")
+    args = parser.parse_args()
+    asyncio.run(main(args.job, args.account))

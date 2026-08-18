@@ -209,12 +209,37 @@ facility, not guessed:
 | Slurm, accounting **off** (a small/lab-scale machine), untyped `--gres=gpu:N` | `SlurmBackend(facility=SLUG, has_accounting=False, gpu_request_style="gres")` — note: this path degrades `get_recent_statuses` to "current live queue only" and is less battle-tested; verify against a real submitted job, not just `doctor` passing |
 | Grid Engine, one real queue, some queue-like names are actually host pins | `GridEngineBackend(facility=SLUG, default_queue="all.q", host_pins={"nodeA", "nodeB"}, queue_aliases={"gpu"})` |
 
-Complete example, including the two optional hooks the generic `submit_job`
-tool calls (see `facilities/rikyu/facility.py` for the real version this is
-based on):
+### The three optional backend hooks
+
+Beyond the constructor knobs, `SchedulerBackend` has three hooks a facility
+may override. All three are no-ops (or raise) by default — override only
+what your machine actually needs:
+
+| Hook | Called by | Override when |
+|---|---|---|
+| `apply_defaults(spec)` | `submit_job`, `render_job_script` (before validation) | Your facility has defaults worth filling into a partial spec — a single obvious partition, or a **mandatory setting that lives in the user's own config** (see below). Mutates `spec` in place. |
+| `validate_spec(spec)` | `submit_job`, `render_job_script` (after defaults) | The scheduler would reject something with a confusing message and you can catch it first (e.g. a fixed set of allowed per-job GPU counts). |
+| `get_projects()` | the `get_projects`/`get_project` tools | Your facility exposes more than the base `sacctmgr` associations `SlurmBackend` already returns — call `super().get_projects()` and enrich. |
+
+**Facility-specific settings that belong to the *user*, not the machine.**
+Some facilities require something the bundled `data/<slug>_config.json`
+can't supply because it's a per-user choice — HBW2 requires `--account` on
+every job, and which project to bill is the user's decision. Read those
+from the user's own config file with `config.file_config(SLUG)` inside
+`apply_defaults()`, and raise a `ValueError` naming the fix if the setting
+is mandatory and missing. That's better than letting the scheduler reject
+the job with its own opaque message. See `facilities/hokusai/facility.py`
+for the full worked example (env var > `defaults.account` > a legacy
+top-level key, then a clear error).
+
+Complete example (see `facilities/rikyu/facility.py` and
+`facilities/hokusai/facility.py` for the real versions this is based on):
 
 ```python
 # facilities/<slug>/facility.py, continued
+import os
+
+from hpc_agent_core import config
 from hpc_agent_core.compute.slurm import SlurmBackend
 from hpc_agent_core.models import JobSpec
 from facilities.registry import register_backend
@@ -223,18 +248,27 @@ SLUG = "mymachine"
 
 
 class MyMachineBackend(SlurmBackend):
-    def default_queue_name(self) -> str | None:
-        """Return a partition name to fill in when the caller leaves
-        queue_name blank, or None if there's no single sensible default
-        (the base class already returns None — override only if your
-        facility genuinely has one obvious default, like a single
-        partition)."""
-        return "gpu"  # or: return None
+    def apply_defaults(self, spec: JobSpec) -> None:
+        """Fill this facility's defaults into a partial spec, in place."""
+        if not spec.attributes.queue_name:
+            spec.attributes.queue_name = "gpu"       # your single obvious default
+        # Only if your facility requires a per-user setting:
+        if spec.attributes.account is None:
+            cfg = config.file_config(SLUG)
+            spec.attributes.account = (
+                os.environ.get(f"{FACILITY.env_prefix}_ACCOUNT")
+                or (cfg.get("defaults") or {}).get("account")
+            )
+        if not spec.attributes.account:
+            raise ValueError(
+                "No project named. Every job here is billed to a project, so "
+                "--account is mandatory. Set spec.attributes.account, or a "
+                f"default under defaults.account in {config.config_path(SLUG)}."
+            )
 
     def validate_spec(self, spec: JobSpec) -> None:
-        """Raise ValueError for a facility-specific constraint the
-        scheduler itself would only reject confusingly. No-op (inherited)
-        if you have nothing to check."""
+        """Raise ValueError for a constraint the scheduler would only
+        reject confusingly. No-op (inherited) if you have nothing to check."""
         # e.g. a fixed set of allowed per-job GPU counts — see Rikyu's real
         # validate_spec for the pattern.
 

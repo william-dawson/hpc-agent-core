@@ -15,7 +15,7 @@ being a per-machine template — coverage is uniform by construction.
 |---|---|---|
 | `GET /facility` | `get_facility` | Implemented — static per-facility JSON |
 | `GET /resources`, `GET /resources/{id}` | `get_resources`, `get_resource` | Implemented — live `sinfo`-style occupancy |
-| `GET /projects`, `GET /projects/{id}` | `get_projects`, `get_project` | Implemented — `sacctmgr show associations`; requires the facility's backend to have `has_accounting=True` |
+| `GET /projects`, `GET /projects/{id}` | `get_projects`, `get_project` | Implemented — `SchedulerBackend.get_projects()`; the Slurm default is `sacctmgr show associations`, and a facility can enrich it (HBW2 adds `sshare` fair-share standing). Requires `has_accounting=True` |
 | `POST /compute/jobs` | `submit_job` | Implemented |
 | `GET /compute/jobs/{id}`, `GET /compute/jobs` | `get_job_status`, `get_job_statuses` | Implemented |
 | `DELETE /compute/jobs/{id}` | `cancel_job` | Implemented |
@@ -32,12 +32,12 @@ being a per-machine template — coverage is uniform by construction.
 - `get_drained_nodes` — nodes currently down/drained and why.
 - `search_docs`, `list_doc_sections`, `read_doc_section` — the RAG
   docs-search tools (on the separate `hpc-docs-mcp` server), fully generic.
+- `render_job_script` — preview the fully-defaulted batch script without
+  submitting (and without touching the scheduler). The "show before you
+  run" rule's cheapest form.
 
 **Not yet implemented anywhere in this repo**:
 
-- `render_job_script` (preview a rendered script without submitting —
-  `SchedulerBackend.render_script()` already exists as the primitive; just
-  no tool wraps it yet).
 - `read_job_output` (a `fs_tail`-flavored shortcut scoped to a job's known
   output path — `fs_tail` already covers this generically once you know the
   path).

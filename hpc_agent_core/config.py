@@ -183,9 +183,19 @@ def config_path(facility: "Facility | str") -> Path:
     return Path(f"~/.hpc-agent/{fac.env_prefix.lower()}.json").expanduser()
 
 
-def _file_config(facility: "Facility | str") -> dict:
-    """The parsed config file for `facility`, or {} if absent. Raises on
-    malformed JSON."""
+def file_config(facility: "Facility | str") -> dict:
+    """The parsed user config file for `facility`, or {} if absent. Raises
+    on malformed JSON.
+
+    Public because a facility legitimately needs to read its own
+    *user-level* settings — ones that are a per-user choice rather than a
+    bundled cluster fact, so they belong in ~/.hpc-agent/<slug>.json rather
+    than in data/<slug>_config.json. HBW2's mandatory project/account
+    (`defaults.account`) is the motivating case: core has no business
+    knowing what an "account" is, but a facility's own apply_defaults()
+    can read one from here. Read at call time, never cached, so a config
+    edit takes effect on the next tool call.
+    """
     path = config_path(facility)
     try:
         with open(path) as f:
@@ -202,7 +212,7 @@ def _section(facility: "Facility | str", key: str) -> dict:
     easy hand-edit mistake — `.get(key, {})` alone only supplies the
     default when the key is missing, not when its value is None, so callers
     must not use that pattern directly for these sections)."""
-    return _file_config(facility).get(key) or {}
+    return file_config(facility).get(key) or {}
 
 
 def ssh_host(facility: "Facility | str") -> str:

@@ -1,8 +1,10 @@
-> **sacct lag**: this cluster's `sacct` trails `sbatch` by a second or two,
-> so `get_job_status` fired *immediately* after `submit_job` can briefly
-> report the job as not found. It's transient — wait a few seconds and
-> query again (or use `get_job_statuses(facility="rccs-cloud",
-> job_ids=[id])`, which returns an empty list rather than erroring).
+> **sacct lag** (handled for you now): this cluster's `sacct` trails
+> `sbatch` by a second or two, so `get_job_status` fired *immediately*
+> after `submit_job` used to report the job as not found. `get_statuses`
+> now falls back to `scontrol` for any id sacct doesn't yet know, which
+> closes that window — a just-submitted job reports `queued` right away.
+> No wait-and-retry needed; if you *do* still see "not found", treat it as
+> a real unknown job id rather than a timing artifact.
 
 ## R-CCS Cloud failure modes and triage
 

@@ -37,8 +37,22 @@ FACILITY = config.register_facility(
 
 
 class RikyuBackend(SlurmBackend):
-    def default_queue_name(self) -> str | None:
-        return "gpu"
+    def apply_defaults(self, spec: JobSpec) -> None:
+        """RIKYU has exactly one partition, so a blank queue_name always
+        means "gpu".
+
+        No account default is filled in here, unlike HBW2 — but note that a
+        user who belongs to more than one RIKYU project *does* get a hard
+        sbatch rejection ("You belong to multiple projects, so the project
+        to be charged must be specified explicitly") when a job omits
+        --account. Verified live. Such a user must set
+        spec.attributes.account per job today; wiring HBW2-style
+        config-driven account defaulting for RIKYU too would be a small,
+        obviously-correct follow-up (see facilities/hokusai/facility.py for
+        the pattern) — it just hasn't been done yet.
+        """
+        if not spec.attributes.queue_name:
+            spec.attributes.queue_name = "gpu"
 
     def validate_spec(self, spec: JobSpec) -> None:
         """RIKYU only accepts these GPU counts per job (Job Resources guide

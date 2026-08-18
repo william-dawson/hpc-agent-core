@@ -99,19 +99,46 @@ class SchedulerBackend(ABC):
         self.facility = facility
         self.name = name
 
-    def default_queue_name(self) -> str | None:
-        """Queue/partition to fill in when a JobSpec leaves
-        attributes.queue_name blank, or None if there's no sensible default
-        (the generic submit_job tool then leaves it blank and lets the
-        scheduler reject it if a queue is required). Override in a facility's
-        own backend construction when there's exactly one sane default, e.g.
-        Rikyu's single "gpu" partition."""
-        return None
+    def apply_defaults(self, spec: JobSpec) -> None:
+        """Fill this facility's defaults into a spec the caller left partial,
+        mutating it in place. Called by the generic submit_job and
+        render_job_script tools before validate_spec().
+
+        No-op by default. Override when a facility has defaults worth
+        filling in, e.g.:
+
+        - a single sensible partition when queue_name is blank (Rikyu's
+          only partition is "gpu"; HBW2 defaults to "mpc"), or
+        - a mandatory setting that lives in the *user's* config rather than
+          the facility's bundled facts — HBW2 requires --account on every
+          job and the project ID is a per-user choice, so its facility.py
+          reads config.file_config(slug) here and raises a clear,
+          actionable error if no account can be resolved.
+
+        Raising ValueError from here is legitimate for the second case:
+        "this spec cannot be completed" is a better error than submitting a
+        job the scheduler will reject with its own opaque message.
+        """
 
     def validate_spec(self, spec: JobSpec) -> None:
         """Raise ValueError if spec violates a facility-specific constraint
         the scheduler itself would only reject confusingly (e.g. Rikyu's
-        fixed set of allowed per-job GPU counts). No-op by default."""
+        fixed set of allowed per-job GPU counts). Called after
+        apply_defaults(). No-op by default."""
+
+    def get_projects(self) -> list[dict]:
+        """Projects/accounts the current user may charge on this facility.
+
+        Optional: the default raises NotImplementedError so a facility with
+        no per-project accounting gives a clear error rather than silently
+        returning nothing. SlurmBackend implements the common
+        `sacctmgr show associations` form; a facility that exposes more
+        (e.g. HBW2 adds `sshare` fair-share standing, which governs when a
+        queued job actually starts) overrides this in its own facility.py.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement get_projects()"
+        )
 
     @abstractmethod
     def render_script(self, spec: JobSpec) -> str:
