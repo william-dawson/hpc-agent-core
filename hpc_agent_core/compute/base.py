@@ -149,6 +149,21 @@ class SchedulerBackend(ABC):
     def cancel(self, job_id: str) -> Job | str:
         """Cancel *job_id* and return its resulting state."""
 
+    def update(self, job_id: str, spec: JobSpec) -> Job:
+        """Apply *spec* to an already-submitted job; return its new state.
+
+        Mirrors IRI's `PUT /compute/job/{rid}/{jid}`, which takes a JobSpec.
+        Only the fields the caller actually set are applied — see
+        SlurmBackend.update() for why, and for which fields a scheduler can
+        realistically change after submission.
+
+        Optional: the default raises NotImplementedError so a scheduler
+        without an update verb gives a clear error.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement update()"
+        )
+
     def get_live_resources(self) -> list[dict]:
         """Live per-partition/queue occupancy (allocated/idle/other/total
         node counts) — the IRI `GET /resources` list, i.e. "will a job start

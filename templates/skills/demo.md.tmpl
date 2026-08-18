@@ -62,10 +62,11 @@ use `run_command_on_cluster(facility="{{SLUG}}", command="sleep 15")` as the
 wait, since there's no sleep tool. Stop when the state is terminal, or after
 about five polls (tell the user to check back later if it's still queued).
 
-Once it finishes, call
-`read_job_output(facility="{{SLUG}}", job_id=...)` and show the output —
-that tool finds the file itself, so you don't need to know the job's working
-directory.
+Once it finishes, read the output: take `meta_data.workdir` from the final
+status and call
+`fs_tail(facility="{{SLUG}}", path="<workdir>/slurm-<job_id>.out")`. Don't
+assume the home directory — a job that set `directory` writes its output
+there instead.
 
 ## Closing
 

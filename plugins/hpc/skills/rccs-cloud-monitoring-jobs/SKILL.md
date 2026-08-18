@@ -25,13 +25,12 @@ handling noted below.
 - **Cluster availability**: `get_resources(facility="rccs-cloud")` —
   per-partition allocated/idle/other/total node counts. Idle nodes can
   start jobs immediately.
-- **Reading a job's output**: use
-  `read_job_output(facility="rccs-cloud", job_id=...)`, optionally with
-  `tail_lines=N` for a long or still-running job. It looks the working
-  directory up from the job's own status record, so it finds the output
-  even when the job set `directory` to something other than `$HOME`.
-  Prefer it over `fs_tail` with a hand-built path — `~/slurm-<id>.out` is
-  only correct for jobs launched from the home directory.
+- **Reading a job's output**: the file is `slurm-<job_id>.out` inside the
+  directory the job ran in. **Get that directory from the job's own status
+  record** (`meta_data.workdir`) rather than assuming `$HOME` — a job whose
+  spec set `directory` writes its output there, not in the home directory.
+  Then read it with `fs_tail(facility="rccs-cloud", path=...)` for a running
+  job, or `fs_view` once it has finished.
 
 > **sacct lag** (handled for you now): this cluster's `sacct` trails
 > `sbatch` by a second or two, so `get_job_status` fired *immediately*
@@ -72,9 +71,12 @@ For an ACTIVE job on a GPU partition:
 
 - `cancel_job(facility="rccs-cloud", job_id=...)` — **confirm with the user
   before calling this.**
-- `update_job(facility="rccs-cloud", job_id=..., updates={...})` — a
-  field-name → value dict passed to `scontrol update`, e.g.
-  `{"TimeLimit": "02:00:00"}`. Only affects jobs still queued or running.
+- `update_job(facility="rccs-cloud", job_id=..., spec={...})` — pass a
+  JobSpec containing only what should change, e.g.
+  `{"attributes": {"duration": "02:00:00"}}`. Only fields a scheduler can
+  change after submission are applied (job name, wall time, partition,
+  account, reservation, node count); anything else you set is reported back
+  as not applied. Only affects jobs still queued or running.
 
 ## Polling until done, from a notebook
 

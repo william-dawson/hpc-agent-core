@@ -31,7 +31,7 @@ repo-wide, not a per-machine template.
 | `GET /api/v1/account/projects` | `get_projects` | `SchedulerBackend.get_projects()`; the Slurm default is `sacctmgr show associations`, and a facility may enrich it (HBW2 adds `sshare` fair-share standing). Needs `has_accounting=True` |
 | `GET /api/v1/account/projects/{project_id}` | `get_project` | |
 | `POST /api/v1/compute/job/{resource_id}` | `submit_job` | |
-| `PUT /api/v1/compute/job/{resource_id}/{job_id}` | `update_job` | Endpoint exists; our shape deviates — see below |
+| `PUT /api/v1/compute/job/{resource_id}/{job_id}` | `update_job` | Takes a JobSpec, as the spec does; only the fields set by the caller, and only those a scheduler can change post-submission, are applied |
 | `GET /api/v1/compute/status/{resource_id}/{job_id}` | `get_job_status` | |
 | `POST /api/v1/compute/status/{resource_id}` | `get_job_statuses` | Empty `job_ids` means "this user's recent jobs" |
 | `DELETE /api/v1/compute/cancel/{resource_id}/{job_id}` | `cancel_job` | |
@@ -54,14 +54,13 @@ repo-wide, not a per-machine template.
 
 ## Deviations worth knowing
 
-- **`update_job`**: the spec's `PUT /compute/job/{rid}/{jid}` takes a
-  **complete PSI/J JobSpec** as its body. Ours takes a dict of scheduler
-  fields (`{"TimeLimit": "02:00:00"}`) plus a `hold` boolean instead —
-  resubmitting a whole JobSpec to change one field doesn't map onto
-  `scontrol update`, which is what actually performs the change.
-  **`hold`/release has no IRI counterpart at all**: it's a separate
-  scheduler verb (`scontrol hold`/`release`), not an updatable field, so
-  that part of the tool is an extension.
+- **`update_job`**: matches the spec's JobSpec-shaped body, with one
+  refinement the spec leaves open ("only some attributes of a scheduled
+  job can be updated — check the facility documentation"). Only fields the
+  caller actually set are applied, so bumping a wall time doesn't also
+  reset the job to the JobSpec default of one node; fields a scheduler
+  can't change after submission are reported back in the returned status
+  rather than silently dropped.
 - **`get_resource`**: the spec's `{resource_id}` identifies a *compute
   resource* (a cluster). Here the facility slug already selects the
   cluster, so our `name` argument selects a **partition within** it — the
@@ -77,10 +76,6 @@ repo-wide, not a per-machine template.
   the spec assumes one facility per API deployment.
 - `render_job_script` — preview the fully-defaulted batch script without
   submitting and without touching the scheduler.
-- `read_job_output` — read a job's console output, resolving the working
-  directory from the job's own status record. **Not in the spec** (it has
-  no job-output endpoint). Worth having because a hand-built
-  `~/slurm-<id>.out` path is only correct for jobs launched from `$HOME`.
 - `get_drained_nodes` — nodes currently down/drained, and why.
 - `run_command_on_cluster` — escape hatch for arbitrary login-node
   commands. Always show the command to the user first (PORTING.md §10).

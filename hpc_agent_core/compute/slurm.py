@@ -461,6 +461,75 @@ class SlurmBackend(SchedulerBackend):
             for acct, e in sorted(projects.items())
         ]
 
+    def update(self, job_id: str, spec: JobSpec) -> Job:
+        """Apply a JobSpec to a queued/running job via `scontrol update`.
+
+        IRI models this as a PUT taking a whole JobSpec, but a scheduler
+        can only change a handful of attributes after submission — the
+        spec itself says as much ("only some attributes of a scheduled job
+        can be updated"). This maps the ones Slurm accepts:
+
+            name              -> JobName
+            attributes.duration      -> TimeLimit
+            attributes.queue_name    -> Partition
+            attributes.account       -> Account
+            attributes.reservation_id-> Reservation
+            resources.node_count     -> NumNodes
+
+        **Only fields the caller actually set are applied.** A JobSpec has
+        defaults for most of these, so applying it wholesale would mean a
+        caller bumping the wall time also silently resetting the job to one
+        node — pydantic's `model_fields_set` distinguishes "the caller
+        asked for node_count=1" from "node_count defaulted to 1". Anything
+        the caller sets that Slurm cannot change after submission (the
+        executable, environment, container, ...) is reported rather than
+        silently ignored, so nobody believes a change took effect when it
+        didn't.
+        """
+        assignments: list[str] = []
+        unsupported: list[str] = []
+
+        top_level = spec.model_fields_set
+        if "name" in top_level:
+            assignments.append(f"JobName={shlex.quote(spec.name)}")
+        for field in sorted(top_level - {"name", "resources", "attributes", "executable"}):
+            unsupported.append(field)
+
+        attr_set = spec.attributes.model_fields_set
+        if "duration" in attr_set:
+            assignments.append(f"TimeLimit={shlex.quote(duration_to_hms(spec.attributes.duration))}")
+        if "queue_name" in attr_set and spec.attributes.queue_name:
+            assignments.append(f"Partition={shlex.quote(spec.attributes.queue_name)}")
+        if "account" in attr_set and spec.attributes.account:
+            assignments.append(f"Account={shlex.quote(spec.attributes.account)}")
+        if "reservation_id" in attr_set and spec.attributes.reservation_id:
+            assignments.append(f"Reservation={shlex.quote(spec.attributes.reservation_id)}")
+        unsupported += [f"attributes.{f}" for f in
+                        sorted(attr_set - {"duration", "queue_name", "account", "reservation_id"})]
+
+        res_set = spec.resources.model_fields_set
+        if "node_count" in res_set:
+            assignments.append(f"NumNodes={int(spec.resources.node_count)}")
+        unsupported += [f"resources.{f}" for f in sorted(res_set - {"node_count"})]
+
+        if not assignments:
+            raise ValueError(
+                "Nothing updatable in this spec. Slurm can change JobName, "
+                "TimeLimit, Partition, Account, Reservation and NumNodes on an "
+                "already-submitted job; set one of those on the spec you pass."
+                + (f" Ignored: {', '.join(unsupported)}." if unsupported else "")
+            )
+
+        run_command(self.facility,
+                    f"scontrol update JobId={shlex.quote(job_id)} " + " ".join(assignments))
+        jobs = self.get_statuses([job_id])
+        job = jobs[0] if jobs else Job(id=job_id, status=JobStatus(state=JobState.UNKNOWN))
+        if unsupported and job.status:
+            note = ("Not applied (a scheduler cannot change these after submission): "
+                    + ", ".join(unsupported))
+            job.status.message = f"{job.status.message} — {note}" if job.status.message else note
+        return job
+
     def get_live_resources(self) -> list[dict]:
         """Live per-partition node occupancy via `sinfo --summarize`.
         Generic across every Slurm facility — not specific to any dialect
