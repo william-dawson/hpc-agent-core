@@ -24,12 +24,4 @@ jobs:
       - name: A built wheel actually contains each facility's data
         run: |
           python -m pip install --quiet build
-          python -m build --wheel --outdir dist_check .
-          python - <<'PY'
-          import glob, zipfile
-          names = zipfile.ZipFile(sorted(glob.glob("dist_check/*.whl"))[-1]).namelist()
-          for needle in ("_guide.md", "chunks.json", "_config.json"):
-              hits = [n for n in names if needle in n]
-              assert hits, f"no {needle} in the wheel - facility data would not install"
-              print(f"{needle}: {len(hits)} file(s)")
-          PY
+          python scripts/check_wheel_data.py

@@ -7,10 +7,8 @@ name = "hpc-agent-hub"
 version = "0.1.0"
 description = "Unified multi-facility MCP server for the HPC agent family: one process, every onboarded supercomputer reachable through one generic, facility-parametrized tool surface."
 readme = "README.md"
-license = {text = "AGPL-3.0-or-later"}
-classifiers = [
-    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
-]
+license = "AGPL-3.0-or-later"   # SPDX expression; the TOML-table and
+license-files = ["LICENSE"]     # classifier forms are deprecated from 2027-02
 requires-python = ">=3.10"
 dependencies = [
     # mcp 2.0.0 (2026-07-17) renamed mcp.server.fastmcp.FastMCP to
