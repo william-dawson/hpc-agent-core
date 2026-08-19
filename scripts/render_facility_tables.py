@@ -36,14 +36,41 @@ def load_facilities() -> list[dict]:
     return sorted(facts, key=lambda f: f["slug"])
 
 
-def render_table(facilities: list[dict]) -> str:
-    lines = ["", "| slug | facility | scheduler | description |",
+def _table(facilities: list[dict]) -> list[str]:
+    lines = ["| slug | facility | scheduler | description |",
              "|---|---|---|---|"]
     for f in facilities:
         lines.append(
             f"| `{f['slug']}` | {f['display_name']} | {f['scheduler']} | {f['description']} |"
         )
-    lines.append("")
+    return lines
+
+
+def render_table(facilities: list[dict]) -> str:
+    for f in facilities:
+        if not isinstance(f.get("live_validated"), bool):
+            raise ValueError(
+                f"{f['slug']}: facility.json must set live_validated to true or false"
+            )
+
+    validated = [f for f in facilities if f["live_validated"]]
+    awaiting = [f for f in facilities if not f["live_validated"]]
+    lines = [
+        "",
+        "### Live-tested facilities",
+        "",
+        "These integrations have been exercised against their real scheduler.",
+        "",
+        *_table(validated),
+        "",
+        "### Awaiting live validation",
+        "",
+        "These ports register and pass the offline test suite, but have not yet",
+        "completed an end-to-end check against the current live system.",
+        "",
+        *_table(awaiting),
+        "",
+    ]
     return "\n".join(lines)
 
 

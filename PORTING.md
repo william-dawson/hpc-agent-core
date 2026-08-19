@@ -472,9 +472,16 @@ running server at all — that's `register_facility()`'s job):
   "slug": "mymachine",
   "display_name": "My Machine (Site)",
   "description": "One-line summary — keep this in sync with facility.py's register_facility() call.",
-  "scheduler": "slurm"
+  "scheduler": "slurm",
+  "live_validated": false
 }
 ```
+
+Keep `live_validated` false while the port has only offline/rendering tests.
+Change it to true only after the current integration has completed the live
+doctor, read-only smoke checks, and a real tiny job from §9. The generated
+documentation deliberately puts false entries in a separate “Awaiting live
+validation” table so users do not mistake an offline port for a proven one.
 
 After adding or editing this file, regenerate the tables it feeds:
 
@@ -484,9 +491,8 @@ python scripts/render_facility_tables.py
 
 This rewrites the block between the `FACILITY_TABLE:START` /
 `FACILITY_TABLE:END` HTML-comment marker pair in every file that has one
-(README.md, AGENTS.md, the `hpc-facilities` skill). CI runs it on your pull
-request and commits the result back, so forgetting is not fatal — but
-running it yourself lets you read what you're actually shipping.
+(README.md, AGENTS.md, the `hpc-facilities` skill). CI checks that generated
+output is current; run the generator yourself and commit the result.
 
 (Note for anyone editing *this* file: don't write the two markers next to
 each other as a literal matched HTML-comment pair anywhere in this

@@ -97,13 +97,64 @@ tests/live_smoke.py     Live, facility-agnostic smoke test.
 ## Facilities onboarded so far
 
 <!-- FACILITY_TABLE:START -->
+### Live-tested facilities
+
+These integrations have been exercised against their real scheduler.
+
 | slug | facility | scheduler | description |
 |---|---|---|---|
 | `fugaku` | Fugaku | pjm | 158,976-node A64FX (Arm SVE) system, Fujitsu PJM scheduler, no GPUs; a project group is mandatory on every job. |
 | `hokusai` | HOKUSAI BigWaterfall2 (HBW2) | slurm | CPU-first Slurm cluster (312-node MPC, large-memory, H100 GPU subsystems); a project account is mandatory on every job. |
 | `rccs-cloud` | R-CCS Cloud | slurm | Heterogeneous ~20-partition cluster (CPU/NVIDIA/AMD/Intel GPU), Slurm with accounting. |
 | `rikyu` | RIKYU (RIKEN AI4S / GB200) | slurm | RIKEN AI4S GB200 GPU cluster, Slurm with accounting, job-total GPU request. |
+
+### Awaiting live validation
+
+These ports register and pass the offline test suite, but have not yet
+completed an end-to-end check against the current live system.
+
+| slug | facility | scheduler | description |
+|---|---|---|---|
+| `cell2026` | cell2026 (Shinobu Lab) | gridengine + slurm | Dual-scheduler GPU cluster: Grid Engine on helix/kinase with managed RTX A4000s and durable qacct, plus no-accounting Slurm on beta/serine with unmanaged RTX 4000 Ada/RTX 5090 GPUs. |
+| `irene` | Irene (CEA TGCC) | bridge | CEA TGCC CPU-first system with AMD Rome, large-memory, and NVIDIA GPU partitions, accessed through the Bridge #MSUB/ccc_* scheduler interface. |
+| `miyabi` | Miyabi (JCAHPC) | pbs | JCAHPC CPU/GH200 system with PBS Professional, full-GPU and MIG queues; the agent must run locally on a Miyabi login node because remote login requires interactive 2FA. |
+| `octopus` | Octopus (RIKEN R-CCS) | slurm | Four-node, dual-vendor GPU cluster: three NVIDIA H200 nodes and one AMD MI300X node, Slurm accounting, and vendor-specific container passthrough. |
+| `tsubame` | TSUBAME4.0 (Science Tokyo) | gridengine | Science Tokyo's GPU-first H100 system, scheduled by Altair Grid Engine using fixed resource-type slices and TSUBAME group points. |
 <!-- FACILITY_TABLE:END -->
+
+## Outstanding code-review work
+
+Resolve these findings before committing the current facility integrations:
+
+- **P1 — CELL2026 cancellation must fail closed when scheduler lookup is
+  uncertain.** `Cell2026Backend._is_not_found()` currently treats an
+  `UNKNOWN` result without queue metadata as an authoritative miss, but the
+  underlying Slurm and Grid Engine backends also return that shape when a
+  command or connection fails. For an unregistered job ID, do not cancel on
+  the scheduler that answered if the other lookup failed or was inconclusive.
+  Require two authoritative lookup results or an explicit scheduler, and add
+  conformance coverage for the failure/one-hit case.
+- **P1 — constrain Miyabi PBS directive arguments.** Validate `queue_name`
+  against the exact known queue set and restrict the PBS project group to its
+  documented identifier syntax before rendering. Values such as
+  `debug-c -l place=excl` currently pass the prefix check and inject an extra
+  PBS option into the `#PBS -q` line. Cover malicious/invalid queue and account
+  strings in the offline tests. Validate or safely render output paths with
+  spaces as well.
+- **P2 — make the CELL2026 doctor honor `CELL2026_GE_BIN`.** Runtime Grid
+  Engine commands use the configured AGE binary prefix, while
+  `check_scheduler()` probes only bare command names. A correctly configured
+  installation must not fail doctor merely because AGE is outside `PATH`.
+- **P2 — extract Miyabi's actual PBS working directory.** `qstat -f` exposes
+  it inside `Variable_List` as `PBS_O_WORKDIR=...`; do not publish the complete
+  comma-separated variable list as `meta_data.workdir`. Add parser and live
+  smoke coverage so output discovery uses the real directory.
+- **P2 — reject TSUBAME's `prior` subscription queue in trial mode.** No group
+  means the constrained free trial, whereas `prior` is the subscription queue.
+  Require an account/group when `queue_name="prior"` and test that combination.
+
+After fixing these, rerun `tests/conformance.py`, `tests/notebook_client.py`,
+both generated-output checks, `git diff --check`, and the wheel-data check.
 
 ## Tool coverage
 

@@ -1,0 +1,7 @@
+{
+  "slug": "miyabi",
+  "display_name": "Miyabi (JCAHPC)",
+  "scheduler": "pbs",
+  "description": "JCAHPC CPU/GH200 system with PBS Professional, full-GPU and MIG queues; the agent must run locally on a Miyabi login node because remote login requires interactive 2FA.",
+  "live_validated": false
+}

@@ -30,8 +30,8 @@ Use wording like this:
 > I propose three short, read-only checks on Fugaku:
 >
 > 1. `pwd` — confirm the login directory.
-> 2. `module avail cuda 2>&1 | head -40` — inspect the available CUDA modules.
-> 3. `sinfo --summarize` — check current partition occupancy.
+> 2. `uname -m` — identify the login node architecture.
+> 3. `df -h .` — inspect free space on the current filesystem.
 >
 > These commands will not modify files or submit/cancel jobs. May I run these
 > commands on Fugaku?
@@ -47,7 +47,7 @@ continuing. This makes failures attributable, keeps the user's approval
 meaningful, and avoids later steps running on a false assumption.
 
 A short pipeline that performs one coherent observation is fine, such as
-`module avail cuda 2>&1 | head -40`. A tightly coupled operation may also use
+`module -t avail 2>&1 | head -40`. A tightly coupled operation may also use
 one small compound command, such as `cd project && make test`, when splitting
 it would change its meaning.
 
@@ -68,8 +68,8 @@ For example:
 > Done on Fugaku:
 >
 > - Confirmed the login directory is `/home/alice`.
-> - Found CUDA 12.6 and 12.8 modules; no module was loaded or changed.
-> - The `gpu` partition currently has 18 idle nodes.
+> - Confirmed the login node is `aarch64`.
+> - The current filesystem has 420 GiB available.
 > - Changed state: none. No files were written and no jobs were submitted.
 
 If a command fails, say which command failed and stop before dependent steps.

@@ -27,7 +27,26 @@ JOB_DEFAULTS = {
     "rccs-cloud": {"queue_name": "genoa"},
     # Fugaku: PJM, no GPUs; queue_name is mandatory (no safe default).
     "fugaku": {"queue_name": "small"},
+    # Miyabi: PBS, CPU debug queue; account/group remains user-specific.
+    "miyabi": {"queue_name": "debug-c"},
+    # Octopus: one NVIDIA H200 GPU; Slurm supplies the user's DefaultAccount.
+    "octopus": {"queue_name": "h200", "gpus": 1},
+    # TSUBAME: explicit empty account means the free 3-minute trial, not a
+    # missing setting. Resource type fixes the CPU/GPU/memory slice.
+    "tsubame": {
+        "duration": 180,
+        "account": "",
+        "custom_attributes": {"resource_type": "node_f", "priority": "-5"},
+    },
+    # Irene: smallest ordinary CPU job. Account remains user-specific and
+    # Bridge supplies mandatory filesystems from the Irene config default.
+    "irene": {"queue_name": "rome", "duration": 300},
+    # cell2026 --job runs this Slurm job and a second GE GPU job below, so
+    # both scheduler paths and the local ID registry are exercised live.
+    "cell2026": {"queue_name": "beta", "duration": 300},
 }
+
+CELL2026_GE_JOB = {"queue_name": "all.q", "duration": 300, "gpus": 1}
 
 
 async def read_only_tier(hpc, docs_hpc) -> list[str]:
@@ -74,19 +93,25 @@ async def read_only_tier(hpc, docs_hpc) -> list[str]:
     return slugs
 
 
-async def job_tier(hpc, slug: str, account: str | None) -> None:
-    defaults = JOB_DEFAULTS.get(slug, {})
+async def job_tier(hpc, slug: str, account: str | None,
+                   defaults_override: dict | None = None,
+                   job_name: str = "hub-smoke") -> None:
+    defaults = defaults_override if defaults_override is not None else JOB_DEFAULTS.get(slug, {})
     resources = {"node_count": 1, "processes_per_node": 1}
     if defaults.get("gpus"):
         resources["gpus"] = defaults["gpus"]
     attributes = {"duration": defaults.get("duration", 300)}
     if defaults.get("queue_name"):
         attributes["queue_name"] = defaults["queue_name"]
-    if account:
+    if account is not None:
         attributes["account"] = account
+    elif "account" in defaults:
+        attributes["account"] = defaults["account"]
+    if defaults.get("custom_attributes"):
+        attributes["custom_attributes"] = defaults["custom_attributes"]
 
     spec = {
-        "name": "hub-smoke",
+        "name": job_name,
         "executable": "echo",
         "arguments": ["hub-smoke-ok"],
         "resources": resources,
@@ -114,11 +139,17 @@ async def job_tier(hpc, slug: str, account: str | None) -> None:
         await asyncio.sleep(10)
     assert state == "completed", status
 
-    # Output filename is scheduler-specific: Slurm writes slurm-<id>.out in
-    # the workdir; PJM writes <jobname>.<id>.out in the submission directory.
+    # Output filename is scheduler-specific: Slurm writes slurm-<id>.out,
+    # PJM writes <jobname>.<id>.out, and Miyabi PBS writes <jobname>.o<seq>.
     workdir = (status["status"].get("meta_data") or {}).get("workdir", "") or ""
+    sequence = job_id.split(".", 1)[0]
     candidates = [f"{workdir.rstrip('/')}/slurm-{job_id}.out" if workdir else f"slurm-{job_id}.out",
-                  f"agent/jobs/{spec['name']}.{job_id}.out"]
+                  f"agent/jobs/{spec['name']}.{job_id}.out",
+                  f"{workdir.rstrip('/')}/irene_{sequence}.o" if workdir
+                  else f"irene_{sequence}.o",
+                  f"agent/jobs/{spec['name']}.o",
+                  f"{workdir.rstrip('/')}/{spec['name']}.o{sequence}" if workdir
+                  else f"{spec['name']}.o{sequence}"]
     out = ""
     for path in candidates:
         try:
@@ -146,7 +177,19 @@ async def main(job_facility: str | None, account: str | None) -> None:
         slugs = await read_only_tier(hpc, docs_hpc)
         if job_facility:
             assert job_facility in slugs, f"{job_facility!r} is not registered (have {slugs})"
-            await job_tier(hpc, job_facility, account)
+            if job_facility == "cell2026":
+                await job_tier(
+                    hpc, job_facility, account,
+                    defaults_override=JOB_DEFAULTS["cell2026"],
+                    job_name="hub-smoke-slurm",
+                )
+                await job_tier(
+                    hpc, job_facility, account,
+                    defaults_override=CELL2026_GE_JOB,
+                    job_name="hub-smoke-ge",
+                )
+            else:
+                await job_tier(hpc, job_facility, account)
         print("\nALL LIVE CHECKS PASSED")
 
 

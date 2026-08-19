@@ -1,40 +1,61 @@
 # hpc-agent-hub
 
-This project lets an agent work on *every* HPC cluster you have access to,
-through one plugin and one server. From your own personal computer, the
-agent can connect to any of them, compile code, organize data, and submit
-jobs. It should work with any standard harness that supports mcp servers
-(claude code, codex, opencode, cline, etc).
+HPC Agent Hub is one plugin for working with multiple supercomputers. From
+your own computer, an AI coding agent can connect to a supported facility,
+inspect and transfer files, compile software, submit and monitor batch jobs,
+and search a guide written for that machine. It works with MCP-capable agent
+harnesses such as Claude Code, Codex, OpenCode, and Cline.
 
 https://github.com/user-attachments/assets/770e1f11-01c7-48f3-8c89-70efc3722e95
 
-This is the unified form of [`hpc-agent-core`](https://github.com/william-dawson/hpc-agent-core).
-Instead of one repository and one plugin per machine, every cluster lives
-here as a `facilities/<name>/` directory, and every tool takes the machine
-name as its first argument — `submit_job(facility="rikyu", ...)`,
-`search_docs(facility="fugaku", ...)`. The agent asks `get_facilities()`
-when it doesn't already know which machine you mean.
+The plugin starts two MCP servers: `hpc-mcp` provides facility information,
+filesystem operations, and scheduler tools; `hpc-docs-mcp` searches the
+bundled machine guides. Every operation names its target explicitly — for
+example, `submit_job(facility="rikyu", ...)` or
+`search_docs(facility="fugaku", ...)`. The agent calls `get_facilities()`
+when it does not already know which machine you mean.
 
-Clusters currently onboarded:
+Supported facilities are grouped by their current validation status. An
+offline-only port is useful for review and script generation, but should not
+be treated as operationally proven until its live checks pass.
 
 <!-- FACILITY_TABLE:START -->
+### Live-tested facilities
+
+These integrations have been exercised against their real scheduler.
+
 | slug | facility | scheduler | description |
 |---|---|---|---|
 | `fugaku` | Fugaku | pjm | 158,976-node A64FX (Arm SVE) system, Fujitsu PJM scheduler, no GPUs; a project group is mandatory on every job. |
 | `hokusai` | HOKUSAI BigWaterfall2 (HBW2) | slurm | CPU-first Slurm cluster (312-node MPC, large-memory, H100 GPU subsystems); a project account is mandatory on every job. |
 | `rccs-cloud` | R-CCS Cloud | slurm | Heterogeneous ~20-partition cluster (CPU/NVIDIA/AMD/Intel GPU), Slurm with accounting. |
 | `rikyu` | RIKYU (RIKEN AI4S / GB200) | slurm | RIKEN AI4S GB200 GPU cluster, Slurm with accounting, job-total GPU request. |
+
+### Awaiting live validation
+
+These ports register and pass the offline test suite, but have not yet
+completed an end-to-end check against the current live system.
+
+| slug | facility | scheduler | description |
+|---|---|---|---|
+| `cell2026` | cell2026 (Shinobu Lab) | gridengine + slurm | Dual-scheduler GPU cluster: Grid Engine on helix/kinase with managed RTX A4000s and durable qacct, plus no-accounting Slurm on beta/serine with unmanaged RTX 4000 Ada/RTX 5090 GPUs. |
+| `irene` | Irene (CEA TGCC) | bridge | CEA TGCC CPU-first system with AMD Rome, large-memory, and NVIDIA GPU partitions, accessed through the Bridge #MSUB/ccc_* scheduler interface. |
+| `miyabi` | Miyabi (JCAHPC) | pbs | JCAHPC CPU/GH200 system with PBS Professional, full-GPU and MIG queues; the agent must run locally on a Miyabi login node because remote login requires interactive 2FA. |
+| `octopus` | Octopus (RIKEN R-CCS) | slurm | Four-node, dual-vendor GPU cluster: three NVIDIA H200 nodes and one AMD MI300X node, Slurm accounting, and vendor-specific container passthrough. |
+| `tsubame` | TSUBAME4.0 (Science Tokyo) | gridengine | Science Tokyo's GPU-first H100 system, scheduled by Altair Grid Engine using fixed resource-type slices and TSUBAME group points. |
 <!-- FACILITY_TABLE:END -->
 
 ## Install
 
-Clone this repository, then tell your coding agent:
+Clone or download this repository, open its directory in your coding agent,
+then tell the agent:
 
 > Install the skill files and mcp servers of this repository.
 
-That is the whole installation. The agent will register the two mcp servers
-(`hpc-mcp` and `hpc-docs-mcp`) with whatever harness you are running, and
-copy the skills into wherever that harness loads them from.
+The agent should register `hpc-mcp` and `hpc-docs-mcp` with the harness and
+install the skills under `plugins/hpc/skills/`. The Python package requires
+Python 3.10 or newer; the supplied plugin launcher uses
+[`uv`](https://docs.astral.sh/uv/).
 
 ## Configure
 
@@ -63,17 +84,20 @@ You can also just ask the agent to do it: every cluster has a
 `<name>-configuring` skill that walks through this and writes the file for
 you.
 
-Then check everything is reachable. The simplest way is to ask the agent
-to run the doctor, but you can also run it yourself without installing
-anything:
+Then check everything is reachable. The simplest way is to ask the agent to
+run the doctor. From this checkout, you can install an editable environment
+and run it directly:
 
 ```bash
-uv tool run --from git+https://github.com/william-dawson/hpc-agent-core.git@unified-hub hpc-doctor
+python3 -m venv .venv
+.venv/bin/pip install -e .
+.venv/bin/hpc-doctor rikyu
 ```
 
-Every line should read `✓`, except possibly the embedding endpoint — that
-one falls back to keyword search and is not blocking. Add a cluster name to
-check just that one.
+Replace `rikyu` with the facility you configured. Every line should read
+`✓`, except possibly the embedding endpoint — that one falls back to keyword
+search and is not blocking. Running the doctor without a facility name checks
+all integrations, which is only useful if you can access all of them.
 
 ## Make the work reproducible
 
@@ -107,12 +131,12 @@ AI coding provides an alternative approach. Our goal is a comprehensive
 coding to automatically generate support for a new cluster. That
 specification is [`PORTING.md`](PORTING.md).
 
-Imagine you want to add a machine. You should follow these steps:
-* Clone this repository
-* Download the documentation related to your cluster
-* Start up a coding agent and tell it "given the documentation about
-machine X in folder Y and the porting guide `PORTING.md`, add X to this
-repository"
+To add a machine:
+
+- Download the documentation related to the cluster.
+- Start a coding agent in this repository.
+- Tell it: “Given the documentation about machine X in folder Y and the
+  porting guide `PORTING.md`, add X to this repository.”
 
 The coding agent will make all the design decisions and implement all the
 cluster specific code. It adds exactly one `facilities/<name>/` directory:
@@ -122,9 +146,9 @@ notes that turn hard-won operational knowledge — which mpi launcher
 actually works, which queue silently rejects a job an hour later — into
 something the agent knows before it makes the mistake.
 
-Nothing else in the repository needs to change, which is what makes it
-possible for several people to add different machines at the same time.
-When you are happy with it, open a pull request.
+Most handwritten machine behavior stays in that facility directory. Shared
+generated tables, skills, and conformance tests make the result visible and
+check it against the same interface as every existing facility.
 
 ### Tool surface: the IRI Facility API
 
@@ -148,10 +172,9 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 ```
 
 Some files are generated from each cluster's `facility.json` and
-`skill_notes/` — the cluster table above, and one skill file per cluster
-per workflow. **You don't have to run anything for this**: CI regenerates
-them on your pull request and commits the result back to your branch. Run
-them yourself if you'd rather read the output first:
+`skill_notes/`: the validation tables above and one skill file per cluster
+per workflow. Regenerate them after changing those inputs; CI checks that
+the committed output is current.
 
 ```bash
 python scripts/render_facility_tables.py   # after editing facility.json

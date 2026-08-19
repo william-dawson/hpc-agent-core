@@ -19,12 +19,13 @@ import os
 import pathlib
 import shlex
 import sys
+import tempfile
 import traceback
 from unittest.mock import patch
 
 import hpc_mcp  # noqa: F401 -- registers every facility
 from hpc_agent_core import config
-from hpc_agent_core.models import JobAttributes, JobSpec, ResourceSpec
+from hpc_agent_core.models import Job, JobAttributes, JobSpec, ResourceSpec
 from facilities.registry import get_backend
 
 FAILURES: list[str] = []
@@ -195,6 +196,505 @@ def check_facility(slug: str) -> None:
             return
         raise AssertionError("RIKYU accepted a nonexistent partition")
 
+    def miyabi_pbs_shape_and_limits_are_enforced():
+        """Keep the offline PBS port honest while Miyabi is inaccessible."""
+        if slug != "miyabi":
+            return
+
+        spec = JobSpec(
+            name="pbs-shape",
+            executable="hostname",
+            resources={
+                "node_count": 2,
+                "process_count": 8,
+                "cpu_cores_per_process": 2,
+                "memory": 3 * 1024**3 + 1,
+            },
+            attributes={
+                "queue_name": "debug-c",
+                "account": "caller-project",
+                "duration": 300,
+            },
+        )
+        script = backend.render_script(spec)
+        assert "#PBS -q debug-c" in script
+        assert "#PBS -W group_list=caller-project" in script
+        assert "#PBS -l select=2:mpiprocs=4:ompthreads=2:mem=4gb" in script
+        assert "#PBS -l walltime=00:05:00" in script
+        assert 'cd "$PBS_O_WORKDIR"' in script
+
+        finished_without_exit = backend._job({
+            "Job_Id": "123.opbs", "job_state": "F",
+        })
+        assert finished_without_exit.status.state.value == "completed"
+        assert finished_without_exit.status.exit_code is None
+        failed = backend._job({
+            "Job_Id": "124.opbs", "job_state": "F", "Exit_status": "2",
+        })
+        assert failed.status.state.value == "failed"
+        assert failed.status.exit_code == 2
+
+        invalid = [
+            ("debug-c", {"processes_per_node": 113}),
+            ("debug-g", {"processes_per_node": 73}),
+            ("debug-mig", {"processes_per_node": 19}),
+            ("debug-c", {"gpus": 1}),
+            ("debug-g", {"node_count": 2, "gpus": 1}),
+        ]
+        for queue, resources in invalid:
+            bad = JobSpec(
+                executable="true",
+                resources=resources,
+                attributes={"queue_name": queue, "account": "caller-project"},
+            )
+            try:
+                backend.validate_spec(bad)
+            except ValueError:
+                continue
+            raise AssertionError(
+                f"Miyabi accepted invalid resources for {queue}: {resources}"
+            )
+
+    def octopus_dual_vendor_defaults_and_limits_are_enforced():
+        """Exercise the dual-vendor mapping without needing either GPU."""
+        if slug != "octopus":
+            return
+
+        default = bare_spec()
+        backend.apply_defaults(default)
+        backend.validate_spec(default)
+        assert default.attributes.queue_name == "h200"
+        assert default.resources.gpus == 1
+        script = backend.render_script(default)
+        assert "#SBATCH --partition=h200" in script
+        assert "#SBATCH --gres=gpu:1" in script
+
+        for queue, expected, forbidden in [
+            ("h200", "--nv", "--rocm"),
+            ("mi300x", "--rocm", "--nv"),
+        ]:
+            spec = JobSpec(
+                executable="echo ok",
+                container={"image": "$HOME/test.sif"},
+                attributes={"queue_name": queue, "duration": 300},
+                resources={"gpus": 2},
+            )
+            backend.apply_defaults(spec)
+            backend.validate_spec(spec)
+            rendered = backend.render_script(spec)
+            assert f"#SBATCH --partition={queue}" in rendered
+            assert "#SBATCH --gres=gpu:2" in rendered
+            assert expected in rendered
+            assert forbidden not in rendered
+
+        invalid = [
+            ({"queue_name": "gpu"}, {}),
+            ({"queue_name": "h200"}, {"gpus": 9}),
+            ({"queue_name": "h200"}, {"node_count": 2, "gpus": 1}),
+            ({"queue_name": "h200"}, {"gpus": 1, "processes_per_node": 193}),
+            ({"queue_name": "h200"}, {"gpus": 1, "memory": 2_317_611 * 1024**2}),
+            ({"queue_name": "mi300x", "duration": "08:00:01"}, {"gpus": 1}),
+        ]
+        for attributes, resources in invalid:
+            bad = JobSpec(
+                executable="true", resources=resources, attributes=attributes,
+            )
+            backend.apply_defaults(bad)
+            try:
+                backend.validate_spec(bad)
+            except ValueError:
+                continue
+            raise AssertionError(
+                f"Octopus accepted invalid spec: attributes={attributes}, "
+                f"resources={resources}"
+            )
+
+        long_job = JobSpec(
+            executable="true", resources={"gpus": 1},
+            attributes={"queue_name": "mi300x-long", "duration": "2-00:00:00"},
+        )
+        backend.apply_defaults(long_job)
+        backend.validate_spec(long_job)
+
+    def tsubame_resource_types_and_trial_limits_are_enforced():
+        """Exercise TSUBAME's non-generic Grid Engine resource dialect."""
+        if slug != "tsubame":
+            return
+
+        with no_user_config(slug), patch.dict(os.environ, {"TSUBAME_GROUP": ""}):
+            trial = JobSpec(
+                name="ge-shape",
+                executable="hostname",
+                container={"image": "$HOME/test image.sif"},
+                resources={"node_count": 2, "processes_per_node": 4,
+                           "cpu_cores_per_process": 2},
+                attributes={
+                    "duration": 180,
+                    "account": "",
+                    "custom_attributes": {
+                        "resource_type": "gpu_1", "priority": "-5",
+                        "array": "1-4:2", "gpu_compute_mode": "1",
+                    },
+                },
+            )
+            backend.apply_defaults(trial)
+            script = backend.render_script(trial)
+        assert "#$ -l gpu_1=2" in script
+        assert "#$ -l h_rt=00:03:00" in script
+        assert "#$ -p -5" in script
+        assert "#$ -t 1-4:2" in script
+        assert "#$ -v GPU_COMPUTE_MODE=1" in script
+        assert "export OMP_NUM_THREADS=2" in script
+        assert "apptainer exec -B /gs -B /apps -B /home --nv" in script
+        assert '"$HOME"/' in script
+
+        cpu_container = JobSpec(
+            executable="true", container={"image": "image.sif"},
+            attributes={"account": "paid", "duration": 3600,
+                        "custom_attributes": {"resource_type": "cpu_40"}},
+        )
+        backend.apply_defaults(cpu_container)
+        cpu_script = backend.render_script(cpu_container)
+        assert "#$ -l cpu_40=1" in cpu_script
+        assert "--nv" not in cpu_script
+
+        invalid_specs = [
+            ({"node_count": 3}, {"account": "", "duration": 180}),
+            ({"node_count": 1}, {"account": "", "duration": 181}),
+            ({}, {"account": "", "duration": 180,
+                  "custom_attributes": {"priority": "-4"}}),
+            ({}, {"account": "paid", "duration": "24:00:01"}),
+            ({}, {"account": "paid", "custom_attributes": {"resource_type": "gpu_2"}}),
+            ({"gpus": 1}, {"account": "paid"}),
+            ({"memory": 1024}, {"account": "paid"}),
+            ({"processes_per_node": 9}, {"account": "paid",
+                 "custom_attributes": {"resource_type": "gpu_1"}}),
+            ({}, {"account": "paid",
+                  "custom_attributes": {"resource_type": "gpu_h",
+                                        "gpu_compute_mode": "1"}}),
+            ({}, {"account": "paid", "queue_name": "all.q"}),
+            ({}, {"account": "paid", "custom_attributes": {"unknown": "x"}}),
+        ]
+        for resources, attributes in invalid_specs:
+            bad = JobSpec(executable="true", resources=resources, attributes=attributes)
+            backend.apply_defaults(bad)
+            try:
+                backend.validate_spec(bad)
+            except ValueError:
+                continue
+            raise AssertionError(
+                f"TSUBAME accepted invalid spec: resources={resources}, "
+                f"attributes={attributes}"
+            )
+
+        assert backend._parse_qstat_line(
+            "123 0.555 job user hRwq 08/19/2026 12:34:56 1"
+        ).status.state.value == "held"
+        assert backend._parse_qstat_line(
+            "124 0.555 job user r 08/19/2026 12:34:56 all.q@node 8"
+        ).status.state.value == "active"
+        from facilities.tsubame.compute import _final_state
+        assert _final_state("0", "0").value == "completed"
+        assert _final_state("0", "2").value == "failed"
+        assert _final_state(None, None).value == "unknown"
+
+        update_spec = JobSpec(
+            name="renamed", executable="true",
+            attributes={"duration": 600,
+                        "custom_attributes": {"priority": "-4", "hold_jid": "41"}},
+        )
+        updated = Job(
+            id="42", status={"state": "queued", "message": None},
+        )
+        with patch("facilities.tsubame.compute.run_command") as command, \
+                patch.object(backend, "get_statuses", return_value=[updated]):
+            backend.update("42", update_spec)
+        rendered_command = command.call_args.args[1]
+        assert rendered_command == (
+            "qalter -N renamed -l h_rt=00:10:00 -p -4 -hold_jid 41 42"
+        )
+
+    def irene_bridge_shape_and_limits_are_enforced():
+        """Exercise Bridge rendering and parsers without a TGCC connection."""
+        if slug != "irene":
+            return
+
+        spec = JobSpec(
+            name="bridge-shape",
+            executable="./solver",
+            arguments=["input with spaces"],
+            environment={"OMP_NUM_THREADS": "2"},
+            resources={
+                "node_count": 2, "process_count": 8,
+                "cpu_cores_per_process": 2, "exclusive_node_use": True,
+            },
+            attributes={
+                "queue_name": "rome", "account": "gen-test", "duration": 600,
+                "custom_attributes": {"filesystems": "scratch,work", "qos": "test"},
+            },
+        )
+        script = backend.render_script(spec)
+        assert "#MSUB -q rome" in script
+        assert "#MSUB -A gen-test" in script
+        assert "#MSUB -m scratch,work" in script
+        assert "#MSUB -n 8" in script
+        assert "#MSUB -c 2" in script
+        assert "#MSUB -N 2" in script
+        assert "#MSUB -x" in script
+        assert "#MSUB -T 600" in script
+        assert "#MSUB -Q test" in script
+        assert "cd ${BRIDGE_MSUB_PWD}" in script
+        assert "ccc_mprun ./solver 'input with spaces'" in script
+
+        gpu = JobSpec(
+            executable="gpu-app", resources={"process_count": 4, "gpus": 4},
+            attributes={"queue_name": "v100", "account": "gen-test",
+                        "custom_attributes": {"filesystems": "scratch"}},
+        )
+        gpu_script = backend.render_script(gpu)
+        assert "#MSUB -c 10" in gpu_script
+        assert "ccc_mprun gpu-app" in gpu_script
+
+        container = JobSpec(
+            executable="python", arguments=["run.py"],
+            container={"image": "registry/image:tag",
+                       "volume_mounts": [{"source": "/work/a", "target": "/data"}]},
+            attributes={"queue_name": "rome", "account": "gen-test",
+                        "custom_attributes": {"filesystems": "work"}},
+        )
+        assert "ccc_mprun -C registry/image:tag -E" in backend.render_script(container)
+
+        invalid_specs = [
+            ({}, {"queue_name": "skylake", "account": "gen-test"}),
+            ({"gpus": 1}, {"queue_name": "rome", "account": "gen-test"}),
+            ({"node_count": 2}, {"queue_name": "xlarge", "account": "gen-test"}),
+            ({"memory": 1024}, {"queue_name": "rome", "account": "gen-test"}),
+            ({"process_count": 129}, {"queue_name": "rome", "account": "gen-test"}),
+            ({"process_count": 2, "gpus": 1}, {"queue_name": "v100", "account": "gen-test"}),
+        ]
+        for resources, attributes in invalid_specs:
+            attributes.setdefault("custom_attributes", {"filesystems": "scratch,work"})
+            bad = JobSpec(executable="true", resources=resources, attributes=attributes)
+            try:
+                backend.validate_spec(bad)
+            except ValueError:
+                continue
+            raise AssertionError(
+                f"Irene accepted invalid spec: resources={resources}, attributes={attributes}"
+            )
+
+        from facilities.irene.compute import (
+            _parse_ccc_mpp, _parse_ccc_msub_job_id, _parse_compuse_projects,
+            _parse_macct,
+        )
+        projects = _parse_compuse_projects(
+            "gen1@rome OK normal\ngen1@v100 BONUS\ngen1@rome duplicate"
+        )
+        assert [(p["account"], p["partition"]) for p in projects] == [
+            ("gen1", "rome"), ("gen1", "v100")]
+        assert _parse_ccc_msub_job_id("Submitted batch job 123456") == "123456"
+        jobs = _parse_ccc_mpp(
+            "user gen1 123456 8 rome batch RUN 00:10:00 now x x bridge-job node01"
+        )
+        assert jobs[0].status.state.value == "active"
+        assert _parse_macct(
+            "123456", "Date: 19/08/2026 12:00:00\nStep COMPLETED"
+        ).status.state.value == "completed"
+
+        with patch(
+            "facilities.irene.compute.run_command",
+            side_effect=["gen-test@rome OK", "Submitted batch job 123456"],
+        ) as command, patch(
+            "facilities.irene.compute.write_remote_file",
+            return_value="agent/jobs/bridge-shape.sh",
+        ) as write:
+            submitted = backend.submit(spec)
+        assert submitted["job_id"] == "123456"
+        assert write.call_args.args[0] == "irene"
+        assert command.call_args_list[0].args == ("irene", "ccc_compuse")
+        assert command.call_args_list[1].args == (
+            "irene", "ccc_msub agent/jobs/bridge-shape.sh",
+        )
+
+        update_spec = JobSpec(executable="true", attributes={"duration": 300})
+        updated = Job(id="123456", status={"state": "active"})
+        with patch("facilities.irene.compute.run_command") as command, \
+                patch.object(backend, "get_statuses", return_value=[updated]):
+            backend.update("123456", update_spec)
+        assert command.call_args.args == (
+            "irene", "ccc_malter -T 300 123456",
+        )
+
+    def cell2026_dual_scheduler_routing_is_enforced():
+        """Exercise both schedulers and the local routing index offline."""
+        if slug != "cell2026":
+            return
+
+        default = bare_spec()
+        backend.apply_defaults(default)
+        assert default.attributes.queue_name == "all.q"
+        ge_script = backend.render_script(JobSpec(
+            name="cell-ge", executable="echo ok",
+            resources={"gpus": 1, "cpu_cores_per_process": 4},
+            attributes={"queue_name": "all.q", "duration": 300},
+        ))
+        assert "#$ -q all.q" in ge_script
+        assert "#$ -l gpu=1" in ge_script
+        assert "#$ -pe smp 4" in ge_script
+        assert "SGE_HGR_gpu" in ge_script
+        assert "CUDA_VISIBLE_DEVICES" in ge_script
+        assert "export OMP_NUM_THREADS=4" in ge_script
+        assert "#SBATCH" not in ge_script
+
+        ge_host = backend.render_script(JobSpec(
+            executable="true", attributes={"queue_name": "helix"},
+        ))
+        assert "#$ -q all.q" in ge_host
+        assert "#$ -l hostname=helix" in ge_host
+
+        slurm_host = backend.render_script(JobSpec(
+            name="cell-slurm", executable="echo ok",
+            resources={"cpu_cores_per_process": 2, "memory": None},
+            attributes={"queue_name": "beta", "duration": 300},
+        ))
+        assert "#SBATCH --partition=all" in slurm_host
+        assert "#SBATCH --nodelist=beta" in slurm_host
+        assert "#SBATCH --cpus-per-task=2" in slurm_host
+        assert "--mem" not in slurm_host
+        assert "--gres" not in slurm_host
+        assert "#$ " not in slurm_host
+
+        slurm_gpu = backend.render_script(JobSpec(
+            executable="true", resources={"gpus": 1},
+            attributes={"queue_name": "serine"},
+            container={"image": "$HOME/test.sif"},
+        ))
+        assert "#SBATCH --nodelist=serine" in slurm_gpu
+        assert "--gres" not in slurm_gpu
+        assert "singularity exec --nv" in slurm_gpu
+
+        ge_submit_spec = JobSpec(
+            name="submit-ge", executable="true", resources={"gpus": 1},
+            attributes={"queue_name": "helix"},
+        )
+        with patch(
+            "hpc_agent_core.compute.gridengine.write_remote_file",
+            return_value="agent/jobs/submit-ge.sh",
+        ) as ge_write, patch(
+            "hpc_agent_core.compute.gridengine.run_command", return_value="301\n",
+        ) as ge_command, patch(
+            "facilities.cell2026.registry.record",
+        ) as record:
+            assert backend.submit(ge_submit_spec)["job_id"] == "301"
+        assert ge_write.call_args.args[0] == "cell2026"
+        assert ge_command.call_args.args[0] == "cell2026"
+        assert record.call_args.args[:3] == ("301", "gridengine", "helix")
+
+        slurm_submit_spec = JobSpec(
+            name="submit-slurm", executable="true",
+            attributes={"queue_name": "beta"},
+        )
+        with patch(
+            "hpc_agent_core.compute.slurm.write_remote_file",
+            return_value="agent/jobs/submit-slurm.sh",
+        ) as slurm_write, patch(
+            "hpc_agent_core.compute.slurm.run_command", return_value="302\n",
+        ) as slurm_command, patch(
+            "facilities.cell2026.registry.record",
+        ) as record:
+            assert backend.submit(slurm_submit_spec)["job_id"] == "302"
+        assert slurm_write.call_args.args[0] == "cell2026"
+        assert slurm_command.call_args.args == (
+            "cell2026", "sbatch --parsable agent/jobs/submit-slurm.sh",
+        )
+        assert record.call_args.args[:3] == ("302", "slurm", "all")
+
+        explicit_slurm = JobSpec(
+            executable="true", attributes={"scheduler": "slurm"},
+        )
+        backend.apply_defaults(explicit_slurm)
+        assert explicit_slurm.attributes.queue_name == "all"
+
+        invalid_specs = [
+            ({"gpus": 3}, {"queue_name": "all.q"}, {}),
+            ({"process_count": 33}, {"queue_name": "all.q"}, {}),
+            ({"node_count": 2}, {"queue_name": "helix"}, {}),
+            ({"memory": 1024}, {"queue_name": "all.q"}, {}),
+            ({"gpus": 1}, {"queue_name": "all.q"}, {"CUDA_VISIBLE_DEVICES": "0"}),
+            ({}, {"queue_name": "all.q", "account": "project"}, {}),
+            ({"node_count": 2}, {"queue_name": "beta"}, {}),
+            ({"process_count": 9}, {"queue_name": "all"}, {}),
+            ({"gpus": 1}, {"queue_name": "serine"}, {}),
+            ({"gpus": 2}, {"queue_name": "all"}, {}),
+            ({}, {"queue_name": "all", "custom_attributes": {"constraint": "gpu"}}, {}),
+            ({}, {"queue_name": "not-a-queue"}, {}),
+            ({}, {"queue_name": "all.q", "scheduler": "slurm"}, {}),
+        ]
+        for resources, attributes, environment in invalid_specs:
+            bad = JobSpec(
+                executable="true", resources=resources,
+                attributes=attributes, environment=environment,
+            )
+            try:
+                backend.validate_spec(bad)
+            except ValueError:
+                continue
+            raise AssertionError(
+                f"cell2026 accepted invalid spec: resources={resources}, "
+                f"attributes={attributes}, environment={environment}"
+            )
+
+        from facilities.cell2026 import registry as cell_registry
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.object(cell_registry, "_REGISTRY_DIR", pathlib.Path(temporary)):
+                cell_registry.record("101", "slurm", "all", "agent/jobs/a.sh")
+                cell_registry.record("202", "gridengine", "all.q", "agent/jobs/b.sh")
+                assert cell_registry.lookup("101") == "slurm"
+                assert cell_registry.lookup("202") == "gridengine"
+                assert {row["job_id"] for row in cell_registry.recent()} == {"101", "202"}
+                assert cell_registry.lookup("../escape") is None
+                cell_registry.record("101", "gridengine", "all.q", "agent/jobs/c.sh")
+                assert cell_registry.lookup("101") is None, (
+                    "overlapping IDs registered to both schedulers must stay ambiguous"
+                )
+
+        slurm_job = Job(id="101", status={"state": "active",
+                                           "meta_data": {"native_state": "RUNNING"}})
+        ge_job = Job(id="202", status={"state": "completed",
+                                       "meta_data": {"native_state": "qacct"}})
+        with patch(
+            "facilities.cell2026.registry.lookup",
+            side_effect=lambda job_id: {"101": "slurm", "202": "gridengine"}.get(job_id),
+        ), patch.object(
+            backend._slurm, "get_statuses", return_value=[slurm_job],
+        ), patch.object(
+            backend._gridengine, "get_statuses", return_value=[ge_job],
+        ):
+            routed = backend.get_statuses(["202", "101"])
+        assert [job.id for job in routed] == ["202", "101"]
+        assert all(job.status.meta_data["scheduler_source"] == "registry"
+                   for job in routed)
+
+        with patch("facilities.cell2026.registry.lookup", return_value=None), \
+                patch.object(backend._slurm, "get_statuses", return_value=[slurm_job]), \
+                patch.object(backend._gridengine, "get_statuses", return_value=[ge_job]), \
+                patch.object(backend._slurm, "cancel") as slurm_cancel, \
+                patch.object(backend._gridengine, "cancel") as ge_cancel:
+            try:
+                backend.cancel("77")
+            except ValueError as exc:
+                assert "exists in both" in str(exc)
+            else:
+                raise AssertionError("cell2026 canceled an ambiguous cross-scheduler ID")
+        slurm_cancel.assert_not_called()
+        ge_cancel.assert_not_called()
+
+        update_spec = JobSpec(executable="true", attributes={"duration": 600})
+        with patch("facilities.cell2026.registry.lookup", return_value="slurm"), \
+                patch.object(backend._slurm, "update", return_value=slurm_job) as update:
+            backend.update("101", update_spec)
+        assert update.call_args.args == ("101", update_spec)
+
     def setup_directions_are_actionable():
         """What a user gets when they say "I want to use this machine" and
         nothing is configured. It has to stand on its own: the agent may
@@ -243,6 +743,21 @@ def check_facility(slug: str) -> None:
     if slug == "rikyu":
         check("deterministic machine resource limits are enforced",
               machine_resource_limits_are_enforced)
+    if slug == "miyabi":
+        check("PBS shape and dated machine limits are enforced",
+              miyabi_pbs_shape_and_limits_are_enforced)
+    if slug == "octopus":
+        check("dual-vendor defaults and machine limits are enforced",
+              octopus_dual_vendor_defaults_and_limits_are_enforced)
+    if slug == "tsubame":
+        check("resource-type Grid Engine dialect and trial limits are enforced",
+              tsubame_resource_types_and_trial_limits_are_enforced)
+    if slug == "irene":
+        check("Bridge shape, parsers, and machine limits are enforced",
+              irene_bridge_shape_and_limits_are_enforced)
+    if slug == "cell2026":
+        check("dual-scheduler rendering, validation, and routing are enforced",
+              cell2026_dual_scheduler_routing_is_enforced)
 
 
 # --- repo-wide checks ----------------------------------------------------
