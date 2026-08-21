@@ -1,14 +1,18 @@
 """Miyabi (JCAHPC) registration for the unified hub.
 
-This port is derived from the separately live-tested Miyabi-Agent repository.
-It has not been revalidated against Miyabi since joining this hub because the
-facility is currently inaccessible.  Keep that distinction visible: the PBS
-dialect below is evidence-backed, but a new live doctor/read-only/job smoke
-run is still required when access returns.
+This port is derived from the separately live-tested Miyabi-Agent repository,
+and was revalidated remotely against the real machine (doctor, read-only
+smoke, and a real debug-c job that ran on compute node mc001).
 
-Miyabi's interactive 2FA means the supported arrangement is unusual: run the
-agent on a Miyabi login node and set ssh.host to ``localhost``.  That invokes
-a local login shell; it does not automate or bypass the remote login.
+Miyabi asks for a one-time code at login, which a non-interactive SSH call
+can never answer.  That once forced the agent to run *on* a login node with
+``ssh.host=localhost``.  OpenSSH connection multiplexing lifts it: the user
+opens one master connection interactively (``ssh -MNf <alias>``), entering
+the code once, and every later ssh/rsync reuses it with no new prompt.
+Nothing is bypassed — the code is still typed by the person, once.
+
+``ssh.host=localhost`` remains fully supported for an agent running on a
+login node.
 """
 import os
 from pathlib import Path
@@ -25,8 +29,9 @@ FACILITY = config.register_facility(
     display_name="Miyabi (JCAHPC)",
     description="JCAHPC Miyabi: 1,120-node Grace Hopper GPU system plus "
                 "190-node Xeon Max CPU system, PBS Professional, full-GPU "
-                "and MIG queues. The agent runs locally on a login node.",
-    default_host="localhost",
+                "and MIG queues. Reached over a multiplexed SSH connection, "
+                "or locally on a login node.",
+    default_host="miyabi-g",
     data_dir=Path(__file__).parent / "data",
     # No Miyabi embedding service has been verified. Keyword search is the
     # deliberate default until a real endpoint is confirmed.
@@ -34,16 +39,24 @@ FACILITY = config.register_facility(
     embed_model="",
     docs_cite_url="",
     config_example={
-        "ssh": {"host": "localhost"},
+        "ssh": {"host": "miyabi-g"},
         "defaults": {"group": "<your-project-group>"},
     },
     setup_help=(
-        "Run Codex/Claude and this plugin on a Miyabi login node; remote SSH\n"
-        "automation is unsupported because Miyabi login requires interactive\n"
-        "2FA. Use ssh.host=localhost, which runs a local shell and does not\n"
-        "start SSH or bypass 2FA. Set defaults.group to your own PBS project\n"
-        "group: every job requires #PBS -W group_list=<group>. Never copy a\n"
-        "group from another user. MIYABI_GROUP overrides the configured group."
+        "Miyabi asks for a one-time code at login, which non-interactive SSH\n"
+        "cannot answer. Use OpenSSH connection multiplexing: add a host block\n"
+        "to ~/.ssh/config with ControlMaster auto, ControlPath\n"
+        "~/.ssh/controlmasters/%C and ControlPersist 30m (mkdir -p that\n"
+        "directory, chmod 700), open the master once with `ssh -MNf <alias>`\n"
+        "entering your code, then set ssh.host to that SAME alias — a bare\n"
+        "hostname selects a different control socket and re-prompts.\n"
+        "Running on a Miyabi login node instead? Use ssh.host=localhost.\n"
+        "Set defaults.group to your own PBS project group: every job requires\n"
+        "#PBS -W group_list=<group>. Never copy a group from another user.\n"
+        "MIYABI_GROUP overrides the configured group.\n"
+        "If a call is suddenly refused with 'Permission denied\n"
+        "(keyboard-interactive)', the master connection expired — re-run\n"
+        "`ssh -MNf <alias>`. Never ask the user for their one-time code."
     ),
 )
 

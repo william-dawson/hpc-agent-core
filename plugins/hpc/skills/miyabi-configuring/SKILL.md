@@ -17,7 +17,7 @@ docs search should use vector rather than keyword matching):
 ```json
 {
   "ssh": {
-    "host": "localhost"
+    "host": "miyabi-g"
   },
   "defaults": {
     "group": "<your-project-group>"
@@ -27,12 +27,20 @@ docs search should use vector rather than keyword matching):
 
 ## What must be true before it can connect
 
-Run Codex/Claude and this plugin on a Miyabi login node; remote SSH
-automation is unsupported because Miyabi login requires interactive
-2FA. Use ssh.host=localhost, which runs a local shell and does not
-start SSH or bypass 2FA. Set defaults.group to your own PBS project
-group: every job requires #PBS -W group_list=<group>. Never copy a
-group from another user. MIYABI_GROUP overrides the configured group.
+Miyabi asks for a one-time code at login, which non-interactive SSH
+cannot answer. Use OpenSSH connection multiplexing: add a host block
+to ~/.ssh/config with ControlMaster auto, ControlPath
+~/.ssh/controlmasters/%C and ControlPersist 30m (mkdir -p that
+directory, chmod 700), open the master once with `ssh -MNf <alias>`
+entering your code, then set ssh.host to that SAME alias — a bare
+hostname selects a different control socket and re-prompts.
+Running on a Miyabi login node instead? Use ssh.host=localhost.
+Set defaults.group to your own PBS project group: every job requires
+#PBS -W group_list=<group>. Never copy a group from another user.
+MIYABI_GROUP overrides the configured group.
+If a call is suddenly refused with 'Permission denied
+(keyboard-interactive)', the master connection expired — re-run
+`ssh -MNf <alias>`. Never ask the user for their one-time code.
 
 ## Guided setup — interview the user, then write the file
 
@@ -41,12 +49,44 @@ about what's missing or being changed.
 
 1. **SSH** — ask how they reach this facility's login node:
 
-Miyabi is local-login-node only. Run the agent on a Miyabi login node and use
-`"host": "localhost"`; this opens a local shell, not SSH. Do not offer a
-remote hostname or suggest bypassing the interactive 2FA login.
+   - **The recommended setup is a multiplexed SSH alias.** Miyabi asks for a
+     one-time code at login, which a non-interactive SSH call can never
+     answer — so the user authenticates once, interactively, and every later
+     `ssh`/`rsync` reuses that connection.
 
-Every PBS job also needs the user's own project group. Put it under
-`defaults.group`, or set `MIYABI_GROUP`. Never reuse a group from an example.
+     Have the user add a block to `~/.ssh/config` (substituting their
+     account):
+
+     ```
+     Host miyabi-g
+         HostName miyabi-g.jcahpc.jp
+         User <account>
+         ControlMaster auto
+         ControlPath ~/.ssh/controlmasters/%C
+         ControlPersist 30m
+     ```
+
+     then, after `mkdir -p ~/.ssh/controlmasters && chmod 700
+     ~/.ssh/controlmasters`, open the master once:
+
+     ```bash
+     ssh -MNf miyabi-g       # they enter their one-time code here
+     ssh -O check miyabi-g   # Master running (pid=…)
+     ```
+
+     Set `"host"` to that **same alias**. A bare hostname, or a different
+     user or port, selects a different control socket and re-prompts.
+   - **Running on a Miyabi login node instead?** Use `"host": "localhost"`,
+     which is direct local execution and involves no SSH at all.
+
+**Never ask the user for their one-time code, and never try to script or
+automate entering one.** The whole arrangement depends on the code being
+typed by the person, once, in their own terminal.
+
+**Also set `defaults.group`** — every PBS job needs the user's own project
+group (`#PBS -W group_list=<group>`), and `submit_job` refuses without one.
+`MIYABI_GROUP` overrides the file. Never reuse a group from an example or
+from another user; `id -Gn` on the login node shows theirs.
 
    - **Running the agent session directly on this facility's own
      front-end/login node** (not a personal laptop)? Use

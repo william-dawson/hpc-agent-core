@@ -1,6 +1,7 @@
 Start by emphasizing that Miyabi is the exception to the laptop-to-cluster
-model: the plugin must run on a Miyabi login node with `host=localhost`
-because remote login requires interactive 2FA.
+model: Miyabi is normally reached over a multiplexed SSH connection the user
+authenticated once with a one-time code (`host` = that ssh alias), or
+directly on a login node with `host=localhost`.
 
 Keep the demo read-only unless the user asks for a job. Show static facts,
 live occupancy, and a docs search for `PBS select mpiprocs ompthreads`. Any
