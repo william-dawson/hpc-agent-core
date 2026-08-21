@@ -223,6 +223,45 @@ def check_facility(slug: str) -> None:
         assert "#PBS -l walltime=00:05:00" in script
         assert 'cd "$PBS_O_WORKDIR"' in script
 
+        # A PBS directive is a single line of options, so a space inside an
+        # argument does not need a newline to inject a second option -- the
+        # control-character validator in models.py cannot see this. Both
+        # fields are checked against their real syntax instead.
+        injections = [
+            {"queue_name": "debug-c -l place=excl", "account": "caller-project"},
+            {"queue_name": "debug-c", "account": "caller-project -l place=excl"},
+            {"queue_name": "debug-c", "account": "grp; qdel 1"},
+            {"queue_name": "no-such-queue", "account": "caller-project"},
+            {"queue_name": "debug-", "account": "caller-project"},
+        ]
+        for attrs in injections:
+            bad = JobSpec(executable="true", resources={"node_count": 1},
+                          attributes={**attrs, "duration": 300})
+            try:
+                backend.apply_defaults(bad)
+                backend.validate_spec(bad)
+            except ValueError:
+                continue
+            raise AssertionError(
+                f"miyabi accepted an injectable PBS directive argument: {attrs}"
+            )
+
+        # A legitimate path containing a space must survive, quoted, rather
+        # than splitting into a second option on the -o/-e directive line.
+        spaced = JobSpec(
+            name="pbs-spaces", executable="hostname",
+            resources={"node_count": 1},
+            stdout_path="/home/u/out dir/job.out",
+            stderr_path="/home/u/out dir/job.err",
+            attributes={"queue_name": "debug-c", "account": "caller-project",
+                        "duration": 300},
+        )
+        backend.apply_defaults(spaced)
+        backend.validate_spec(spaced)
+        spaced_script = backend.render_script(spaced)
+        assert "#PBS -o '/home/u/out dir/job.out'" in spaced_script, spaced_script
+        assert "#PBS -e '/home/u/out dir/job.err'" in spaced_script, spaced_script
+
         finished_without_exit = backend._job({
             "Job_Id": "123.opbs", "job_state": "F",
         })
@@ -675,7 +714,10 @@ def check_facility(slug: str) -> None:
         assert all(job.status.meta_data["scheduler_source"] == "registry"
                    for job in routed)
 
+        # run_command is stubbed so both liveness probes succeed: this case
+        # is about a genuinely ambiguous id, not an unreachable scheduler.
         with patch("facilities.cell2026.registry.lookup", return_value=None), \
+                patch("hpc_agent_core.middleware.run_command", return_value=""), \
                 patch.object(backend._slurm, "get_statuses", return_value=[slurm_job]), \
                 patch.object(backend._gridengine, "get_statuses", return_value=[ge_job]), \
                 patch.object(backend._slurm, "cancel") as slurm_cancel, \
@@ -683,11 +725,52 @@ def check_facility(slug: str) -> None:
             try:
                 backend.cancel("77")
             except ValueError as exc:
-                assert "exists in both" in str(exc)
+                assert "exists in both" in str(exc), exc
             else:
                 raise AssertionError("cell2026 canceled an ambiguous cross-scheduler ID")
         slurm_cancel.assert_not_called()
         ge_cancel.assert_not_called()
+
+        # An unregistered id with only ONE scheduler answering must not be
+        # cancelled on that scheduler: _is_not_found() reports the same shape
+        # for "absent" and "the query failed", and this facility's Slurm runs
+        # has_accounting=False, which swallows both squeue and scontrol
+        # errors -- so a dead link looks exactly like a clean miss. Ids can
+        # collide across the two schedulers, so guessing can kill a different
+        # job.
+        missing = Job(id="77", status={"state": "unknown"})
+        with patch("facilities.cell2026.registry.lookup", return_value=None), \
+                patch("hpc_agent_core.middleware.run_command",
+                      side_effect=RuntimeError("ssh: connect to host: timed out")), \
+                patch.object(backend._slurm, "get_statuses", return_value=[slurm_job]), \
+                patch.object(backend._gridengine, "get_statuses", return_value=[missing]), \
+                patch.object(backend._slurm, "cancel") as slurm_cancel, \
+                patch.object(backend._gridengine, "cancel") as ge_cancel:
+            try:
+                backend.cancel("77")
+            except ValueError as exc:
+                assert "could not be completed" in str(exc), exc
+            else:
+                raise AssertionError(
+                    "cell2026 cancelled an unregistered id while a scheduler "
+                    "lookup was inconclusive"
+                )
+        slurm_cancel.assert_not_called()
+        ge_cancel.assert_not_called()
+
+        # With both schedulers demonstrably answering and exactly one hit,
+        # the fallback cancel still works.
+        with patch("facilities.cell2026.registry.lookup", return_value=None), \
+                patch("hpc_agent_core.middleware.run_command", return_value=""), \
+                patch.object(backend._slurm, "get_statuses", return_value=[slurm_job]), \
+                patch.object(backend._gridengine, "get_statuses", return_value=[missing]), \
+                patch.object(backend._slurm, "cancel",
+                             return_value=Job(id="101", status={"state": "canceled"})) as ok_cancel, \
+                patch.object(backend._gridengine, "cancel") as ge_cancel2:
+            cancelled = backend.cancel("101")
+        ok_cancel.assert_called_once()
+        ge_cancel2.assert_not_called()
+        assert cancelled.status.meta_data["cancel_source"] == "slurm_fallback"
 
         update_spec = JobSpec(executable="true", attributes={"duration": 600})
         with patch("facilities.cell2026.registry.lookup", return_value="slurm"), \

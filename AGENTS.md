@@ -124,23 +124,10 @@ completed an end-to-end check against the current live system.
 
 ## Outstanding code-review work
 
-Resolve these findings before committing the current facility integrations:
+Resolve these findings before the next facility integration. The two P1
+findings are fixed and covered by `tests/conformance.py`; what remains
+is P2.
 
-- **P1 — CELL2026 cancellation must fail closed when scheduler lookup is
-  uncertain.** `Cell2026Backend._is_not_found()` currently treats an
-  `UNKNOWN` result without queue metadata as an authoritative miss, but the
-  underlying Slurm and Grid Engine backends also return that shape when a
-  command or connection fails. For an unregistered job ID, do not cancel on
-  the scheduler that answered if the other lookup failed or was inconclusive.
-  Require two authoritative lookup results or an explicit scheduler, and add
-  conformance coverage for the failure/one-hit case.
-- **P1 — constrain Miyabi PBS directive arguments.** Validate `queue_name`
-  against the exact known queue set and restrict the PBS project group to its
-  documented identifier syntax before rendering. Values such as
-  `debug-c -l place=excl` currently pass the prefix check and inject an extra
-  PBS option into the `#PBS -q` line. Cover malicious/invalid queue and account
-  strings in the offline tests. Validate or safely render output paths with
-  spaces as well.
 - **P2 — make the CELL2026 doctor honor `CELL2026_GE_BIN`.** Runtime Grid
   Engine commands use the configured AGE binary prefix, while
   `check_scheduler()` probes only bare command names. A correctly configured

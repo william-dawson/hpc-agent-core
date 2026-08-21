@@ -31,7 +31,25 @@ _PBS_STATES = {
 }
 
 _HISTORY_STATES = {"FINISH": JobState.COMPLETED}
-_QUEUE_PREFIXES = ("debug-", "short-", "regular-", "interact-", "coupler-")
+#: PBS group_list identifiers seen at JCAHPC are alphanumeric with optional
+#: separators (e.g. "jh210022"). Anything else is rejected rather than
+#: rendered: attrs.account is interpolated straight into a `#PBS -W` line,
+#: where a space would append further scheduler options to that directive.
+_GROUP_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
+
+#: Same reasoning for the queue, which lands in `#PBS -q`. A prefix check
+#: used to guard this, which let "debug-c -l place=excl" through — it starts
+#: with "debug-" and then injects an extra option into the directive.
+#: The exact set lives in the bundled facts, so it stays right as queues
+#: change instead of drifting from a hardcoded tuple.
+def _known_queues(facility: str) -> frozenset[str]:
+    from hpc_agent_core import config as _config
+    queues = _config.load_facts(facility).get("queues", {})
+    names: set[str] = set()
+    for value in queues.values():
+        if isinstance(value, list):          # skip the "note" string entry
+            names.update(str(v) for v in value)
+    return frozenset(names)
 
 
 class PBSBackend(SchedulerBackend):
@@ -101,15 +119,26 @@ class PBSBackend(SchedulerBackend):
                 "Miyabi requires spec.attributes.queue_name. Use get_resources "
                 "to choose a current CPU (-c), full-GPU (-g), or MIG (-mig) queue."
             )
-        if queue != "prepost" and not queue.startswith(_QUEUE_PREFIXES):
+        known = _known_queues(self.facility)
+        if queue not in known:
             raise ValueError(
-                f"Unrecognised Miyabi queue {queue!r}. Use get_resources or "
-                "search_docs rather than guessing a PBS queue name."
+                f"Unrecognised Miyabi queue {queue!r}. Known queues: "
+                f"{', '.join(sorted(known))}. Use get_resources or search_docs "
+                "rather than guessing a PBS queue name. (The name must match "
+                "exactly — it is written into the #PBS -q directive, so a "
+                "value carrying extra text would inject scheduler options.)"
             )
         if not attrs.account:
             raise ValueError(
                 "Miyabi requires spec.attributes.account (the PBS group_list project). "
                 "Set it explicitly or let apply_defaults load your configured group."
+            )
+        if not _GROUP_RE.fullmatch(attrs.account):
+            raise ValueError(
+                f"Invalid Miyabi project group {attrs.account!r}. A PBS "
+                "group_list identifier is alphanumeric, optionally with _ or "
+                "-, e.g. 'jh210022'. It is written into the #PBS -W directive, "
+                "so a value carrying extra text would inject scheduler options."
             )
 
         ppn = self._processes_per_chunk(spec)
@@ -181,14 +210,18 @@ class PBSBackend(SchedulerBackend):
             f"#PBS -l {select}",
             f"#PBS -l walltime={duration_to_hms(attrs.duration)}",
         ]
+        # Output paths are quoted: a path containing a space would otherwise
+        # split into a second argument on the directive line, which PBS reads
+        # as another option rather than part of the filename.
         if spec.stdout_path and spec.stderr_path:
-            lines.extend([f"#PBS -o {spec.stdout_path}", f"#PBS -e {spec.stderr_path}"])
+            lines.extend([f"#PBS -o {shlex.quote(spec.stdout_path)}",
+                          f"#PBS -e {shlex.quote(spec.stderr_path)}"])
         elif spec.stderr_path:
-            lines.extend(["#PBS -j eo", f"#PBS -e {spec.stderr_path}"])
+            lines.extend(["#PBS -j eo", f"#PBS -e {shlex.quote(spec.stderr_path)}"])
         else:
             lines.append("#PBS -j oe")
             if spec.stdout_path:
-                lines.append(f"#PBS -o {spec.stdout_path}")
+                lines.append(f"#PBS -o {shlex.quote(spec.stdout_path)}")
         return lines
 
     @staticmethod

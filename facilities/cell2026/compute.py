@@ -329,6 +329,24 @@ class Cell2026Backend(SchedulerBackend):
         return result
 
     @staticmethod
+    def _scheduler_answered(backend, probe: str) -> tuple[bool, str]:
+        """Positive evidence that `backend`'s scheduler is actually reachable.
+
+        Returns (ok, reason_if_not). Used only on the destructive cancel
+        path, where "no answer" must never be read as "no such job" — see
+        cancel(). A cheap version/help probe is enough: it goes through the
+        same run_command/SSH path the real query would, and unlike the
+        status queries it is not wrapped in the backends' own error
+        swallowing.
+        """
+        from hpc_agent_core.middleware import run_command
+        try:
+            run_command(backend.facility, probe)
+        except Exception as exc:  # noqa: BLE001 -- any failure means "unknown"
+            return False, f"{type(exc).__name__}: {str(exc)[:120]}"
+        return True, ""
+
+    @staticmethod
     def _is_not_found(job: Job, scheduler: str) -> bool:
         status = job.status
         if status is None or status.state != JobState.UNKNOWN:
@@ -417,6 +435,32 @@ class Cell2026Backend(SchedulerBackend):
             return self._gridengine.cancel(job_id)
         # An ID can exist independently in both schedulers. Identify it with
         # read-only queries before issuing either destructive cancel command.
+        #
+        # Fail closed on an inconclusive lookup. _is_not_found() cannot tell
+        # "this scheduler does not have the job" from "the query failed" —
+        # both surface as UNKNOWN with no queue/partition metadata — and this
+        # facility's Slurm runs has_accounting=False, whose squeue *and*
+        # scontrol failures are both swallowed internally, so a dead
+        # connection returns UNKNOWN rather than raising. Without a positive
+        # liveness check, a failed Grid Engine lookup would silently collapse
+        # the "exists in both, refuse" guard into cancelling on whichever
+        # scheduler answered — and since ids can collide across the two, that
+        # can cancel a different job.
+        slurm_live, slurm_why = self._scheduler_answered(self._slurm, "sinfo --version")
+        ge_live, ge_why = self._scheduler_answered(self._gridengine, "qstat -help")
+        if not (slurm_live and ge_live):
+            dead = "Slurm" if not slurm_live else "Grid Engine"
+            why = slurm_why if not slurm_live else ge_why
+            raise ValueError(
+                f"Refusing to cancel unregistered job {job_id!r}: the {dead} "
+                f"lookup on cell2026 could not be completed ({why}), so it is "
+                "impossible to tell whether that scheduler also holds this id. "
+                "Job ids can collide between the two schedulers here, so "
+                "cancelling on the one that did answer risks killing a "
+                "different job. Fix the connection, or name the scheduler "
+                "explicitly via the job registry."
+            )
+
         slurm_status = self._slurm.get_statuses([job_id])[0]
         ge_status = self._gridengine.get_statuses([job_id])[0]
         slurm_hit = not self._is_not_found(slurm_status, "slurm")
