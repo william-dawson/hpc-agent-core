@@ -7,9 +7,9 @@ procedure itself.
 
 ## What this repo is
 
-One Claude Code / Codex plugin (`plugins/hpc/`), one MCP server process,
-every onboarded HPC facility reachable through one generic, facility-
-parametrized tool surface.
+One shared MCP-owning plugin (`plugins/hpc/`) plus one skill-only plugin per
+facility (`plugins/hpc-<slug>/`), one MCP server process, every onboarded
+facility reachable through one generic, facility-parametrized tool surface.
 
 **This lives on the `unified-hub` branch of
 `william-dawson/hpc-agent-core`.** It is the unified form of what `main`
@@ -84,13 +84,14 @@ facilities/             One directory per onboarded facility, plus
                         hand-written skill content (see PORTING.md §7).
 hpc_mcp/                The unified server entry points; importing this
                         package registers every facility.
-plugins/hpc/            The Claude Code / Codex plugin: .mcp.json, skills/
-                        (one real generated skill per facility+workflow,
-                        plus the shared hpc-facilities discovery skill).
+plugins/hpc/            The base Codex plugin: .mcp.json and only the
+                        shared hpc-facilities discovery skill.
+plugins/hpc-<slug>/     Generated skill-only Codex plugin for one facility.
 templates/skills/       Shared per-workflow skill templates (the mechanics
                         every facility has identically) — not per-facility.
-scripts/                render_facility_tables.py (facility table codegen)
-                        and render_skills.py (per-facility skill codegen).
+scripts/                render_facility_tables.py (facility table codegen),
+                        render_skills.py (per-facility skill codegen), and
+                        render_plugins.py (marketplace/manifest codegen).
 tests/live_smoke.py     Live, facility-agnostic smoke test.
 ```
 

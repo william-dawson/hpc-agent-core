@@ -26,11 +26,12 @@ Inputs (shared, from templates/skills/):
                            something a single facility's PR should need to
                            touch; see PORTING.md.
 
-Output: plugins/hpc/skills/<slug>-<workflow>/SKILL.md, one directory per
-(facility, workflow) pair — real, distinct skill files, not one shared
-generic skill. A facility PR that adds/edits skill_notes/*.md must re-run
-this (no --check) and commit the result; CI's --check run catches a PR
-that forgot to.
+Output: plugins/hpc-<slug>/skills/<slug>-<workflow>/SKILL.md, one directory
+per (facility, workflow) pair.  ``plugins/hpc`` stays small: it owns the
+shared MCP servers and the one universal discovery skill, while a user only
+installs a facility pack after choosing that facility. A facility PR that
+adds/edits skill_notes/*.md must re-run this (no --check) and commit the
+result; CI's --check run catches a PR that forgot to.
 """
 import argparse
 import json
@@ -43,7 +44,7 @@ import hpc_mcp  # noqa: E402,F401 -- import registers every facility
 from hpc_agent_core import config as _config  # noqa: E402
 
 TEMPLATES_DIR = ROOT / "templates" / "skills"
-SKILLS_DIR = ROOT / "plugins" / "hpc" / "skills"
+PLUGINS_DIR = ROOT / "plugins"
 
 _FALLBACK_NOTES = (
     "_No facility-specific notes yet for this workflow — see "
@@ -59,6 +60,11 @@ def load_facilities() -> list[dict]:
         data["_dir"] = manifest.parent
         facs.append(data)
     return sorted(facs, key=lambda f: f["slug"])
+
+
+def skills_dir(fac: dict) -> Path:
+    """The isolated skill-pack directory for one facility."""
+    return PLUGINS_DIR / f"hpc-{fac['slug']}" / "skills"
 
 
 def render_one(template_text: str, fac: dict, workflow: str) -> str:
@@ -109,7 +115,7 @@ def main() -> int:
 
     stale = []
     written = []
-    seen_dirs = set()
+    seen_dirs: dict[Path, set[Path]] = {}
 
     # Facility-unique skills: a workflow only one machine has, with no
     # shared template to render from. Fugaku's build guidance is the
@@ -119,12 +125,14 @@ def main() -> int:
     # from facilities/<slug>/skills/<name>/SKILL.md, with the same scalar
     # placeholders substituted so they can still say facility="{{SLUG}}".
     for fac in facilities:
+        facility_skills = skills_dir(fac)
+        seen_dirs[facility_skills] = set()
         for skill_dir in sorted((fac["_dir"] / "skills").glob("*/")):
             source = skill_dir / "SKILL.md"
             if not source.exists():
                 continue
-            out_dir = SKILLS_DIR / f"{fac['slug']}-{skill_dir.name.rstrip('/')}"
-            seen_dirs.add(out_dir)
+            out_dir = facility_skills / f"{fac['slug']}-{skill_dir.name.rstrip('/')}"
+            seen_dirs[facility_skills].add(out_dir)
             out_path = out_dir / "SKILL.md"
             rendered = render_one(source.read_text(), fac, "__unique__")
             if out_path.exists() and out_path.read_text() == rendered:
@@ -139,9 +147,10 @@ def main() -> int:
         workflow = template_path.name.removesuffix(".md.tmpl")
         template_text = template_path.read_text()
         for fac in facilities:
-            out_dir = SKILLS_DIR / f"{fac['slug']}-{workflow}"
+            facility_skills = skills_dir(fac)
+            out_dir = facility_skills / f"{fac['slug']}-{workflow}"
             out_path = out_dir / "SKILL.md"
-            seen_dirs.add(out_dir)
+            seen_dirs[facility_skills].add(out_dir)
             rendered = render_one(template_text, fac, workflow)
             current = out_path.read_text() if out_path.exists() else None
             if current == rendered:
@@ -158,10 +167,11 @@ def main() -> int:
     # (deleting a directory silently is a bigger surprise than leaving an
     # extra one for a human to remove deliberately).
     orphans = []
-    if SKILLS_DIR.exists():
-        for existing in SKILLS_DIR.iterdir():
-            if existing.is_dir() and existing.name != "hpc-facilities" and existing not in seen_dirs:
-                orphans.append(existing)
+    for facility_skills, expected in seen_dirs.items():
+        if facility_skills.exists():
+            for existing in facility_skills.iterdir():
+                if existing.is_dir() and existing not in expected:
+                    orphans.append(existing)
 
     rel = [str(p.relative_to(ROOT)) for p in stale]
     if args.check:

@@ -1,6 +1,7 @@
 # hpc-agent-hub
 
-HPC Agent Hub is one plugin for working with multiple supercomputers. From
+HPC Agent Hub is a small shared plugin plus optional facility skill packs for
+working with multiple supercomputers. From
 your own computer, an AI coding agent can connect to a supported facility,
 inspect and transfer files, compile software, submit and monitor batch jobs,
 and search a guide written for that machine. It works with MCP-capable agent
@@ -50,12 +51,59 @@ completed an end-to-end check against the current live system.
 Clone or download this repository, open its directory in your coding agent,
 then tell the agent:
 
-> Install the skill files and mcp servers of this repository.
+> Install the plugins and skill files associated with this repository.
 
-The agent should register `hpc-mcp` and `hpc-docs-mcp` with the harness and
-install the skills under `plugins/hpc/skills/`. The Python package requires
-Python 3.10 or newer; the supplied plugin launcher uses
-[`uv`](https://docs.astral.sh/uv/).
+**Agent instruction:** before installing any facility skills, ask the user
+which facility slugs they want. For example: “Which facility skill packs
+should I include? Choose from `rikyu`, `fugaku`, `hokusai`, `miyabi`,
+`rccs-cloud`, `cell2026`, `irene`, `octopus`, and `tsubame`.” Do not install
+all facility packs by default, and do not infer access from the facility
+catalog. The user may name more than one facility, or choose none yet.
+
+### Codex plugins
+
+Install the base plugin once. It owns the shared `hpc` and `hpc-docs` MCP
+servers and the facility-discovery skill:
+
+```sh
+codex plugin add hpc@hpc-marketplace
+```
+
+Then install one skill-only pack per facility the user selected:
+
+```sh
+codex plugin add hpc-rikyu@hpc-marketplace
+codex plugin add hpc-fugaku@hpc-marketplace
+```
+
+The facility packs do not register MCP servers, so they never duplicate or
+conflict with the base plugin. Their names are always `hpc-<slug>`.
+
+### Claude Code and OpenPlugin compatibility
+
+Every package uses the same root `skills/` layout and also includes the
+native manifests expected by Codex (`.codex-plugin/plugin.json`) and Claude
+Code (`.claude-plugin/plugin.json`). The repository supplies a Claude Code
+marketplace at `.claude-plugin/marketplace.json`. Each package additionally
+has a portable OpenPlugin `plugin.json`; the base `hpc` package has its
+portable `mcp.json`. In every harness, install `hpc` first and only the
+facility packs the user selected.
+
+### Manual installation for any MCP-capable harness
+
+If the harness does not support plugins, register `hpc-mcp` and
+`hpc-docs-mcp` using its normal stdio-MCP configuration. From an editable
+checkout, point them at `.venv/bin/hpc-mcp` and `.venv/bin/hpc-docs-mcp`
+(after installing this project into that environment). Then install only the
+selected skill directories:
+
+```text
+plugins/hpc/skills/                    # shared hpc-facilities skill
+plugins/hpc-<selected-slug>/skills/    # one selected facility pack
+```
+
+The Python package requires Python 3.10 or newer; the supplied plugin
+launcher uses [`uv`](https://docs.astral.sh/uv/).
 
 ## Configure
 
@@ -178,13 +226,15 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 ```
 
 Some files are generated from each cluster's `facility.json` and
-`skill_notes/`: the validation tables above and one skill file per cluster
-per workflow. Regenerate them after changing those inputs; CI checks that
-the committed output is current.
+`skill_notes/`: the validation tables above, one skill file per cluster per
+workflow, facility-pack manifests, and the marketplace entries. Regenerate
+them after changing those inputs; CI checks that the committed output is
+current.
 
 ```bash
 python scripts/render_facility_tables.py   # after editing facility.json
 python scripts/render_skills.py            # after editing skill_notes/
+python scripts/render_plugins.py           # after adding a facility
 ```
 
 ## License

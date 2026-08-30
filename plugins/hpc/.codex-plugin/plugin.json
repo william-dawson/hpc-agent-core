@@ -1,26 +1,34 @@
 {
   "name": "hpc",
-  "version": "0.1.0",
-  "description": "Interact with every onboarded HPC facility (RIKYU, R-CCS Cloud, ...) through one server: submit and monitor jobs, manage files, and search each facility's documentation.",
+  "version": "0.2.0",
+  "description": "Shared HPC MCP servers and facility discovery. Install only the facility skill packs you use.",
   "author": {
     "name": "William Dawson",
     "email": "william.dawson@riken.jp"
   },
   "repository": "https://github.com/william-dawson/hpc-agent-core",
-  "keywords": ["hpc", "slurm", "riken", "supercomputer", "multi-facility"],
+  "keywords": [
+    "hpc",
+    "slurm",
+    "supercomputer",
+    "multi-facility"
+  ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "HPC",
-    "shortDescription": "Submit and monitor jobs across every onboarded HPC facility.",
-    "longDescription": "Interact with every onboarded HPC facility (RIKYU, R-CCS Cloud, ...) from Codex through one server: submit and monitor jobs, manage files, and search each facility's documentation. Call get_facilities first to see what's available.",
+    "shortDescription": "Shared HPC MCP servers and facility discovery.",
+    "longDescription": "Adds shared HPC MCP servers and discovery. Install an hpc-<facility> skill pack only for a facility you choose to use.",
     "developerName": "William Dawson",
     "category": "Productivity",
-    "capabilities": ["Interactive", "Write"],
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
     "defaultPrompt": [
       "List the available HPC facilities.",
-      "Show cluster status for RIKYU.",
-      "Submit a small test job on RIKYU."
+      "Which facility skill pack should I install?",
+      "Show me how to configure access to RIKYU."
     ]
   }
 }

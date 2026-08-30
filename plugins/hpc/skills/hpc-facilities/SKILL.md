@@ -52,6 +52,24 @@ completed an end-to-end check against the current live system.
 | `tsubame` | TSUBAME4.0 (Science Tokyo) | gridengine | Science Tokyo's GPU-first H100 system, scheduled by Altair Grid Engine using fixed resource-type slices and TSUBAME group points. |
 <!-- FACILITY_TABLE:END -->
 
-Once you've resolved the slug, load that facility's own skill — its content
-is written specifically for that machine (dialect, module names, failure
-modes, SSH setup) rather than generic advice.
+Once you've resolved the slug, check whether its facility skill pack is
+installed. The base `hpc` plugin deliberately ships only this discovery
+skill and the shared MCP servers; it does not preload guidance for every
+machine.
+
+For Codex, install the selected pack from the same marketplace:
+
+```sh
+codex plugin add hpc-<slug>@hpc-marketplace
+```
+
+For a harness without plugins, install only the skill directories under
+`plugins/hpc-<slug>/skills/`. Before installing any facility pack on the
+user's behalf, ask them which facility slugs they want included; do not
+assume that every facility listed here is relevant or accessible.
+
+The selected pack has the real facility-specific configuring, reference,
+submission, monitoring, remote-command, demo, and reproducibility skills.
+If the user wants to configure access before installing it, call an
+appropriate facility-scoped MCP tool: an unconfigured facility returns its
+exact setup instructions.
