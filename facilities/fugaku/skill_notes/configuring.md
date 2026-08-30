@@ -21,3 +21,8 @@ facilities don't:
   storage volume a job will touch. Required whenever work goes outside
   `$HOME`, including anything under Spack; omit it for jobs that stay in
   `$HOME`. `{{ENV_PREFIX}}_GFSCACHE` overrides the file.
+- **Resolve the group's data area at setup time.** Run `accountd -E` on
+  the login node once the connection works: it lists each project group's
+  `/vol0X0X/data/<group>/` path and quota. That output is the checked
+  answer for which volume `gfscache_volume` should name, and jobs should
+  run from that data area, not `$HOME` (see `fugaku-submitting-jobs`).

@@ -61,6 +61,21 @@ or `resources.gpu_cores_per_process`; both are rejected outright.
    redirecting them. Output always lands at `<name>.<job_id>.out`/`.err` in
    the submission directory. Set `spec.directory` if you want it elsewhere.
 
+## Jobs run from the group data area, not `$HOME`
+
+Point `directory` at something under `/vol0n0m/data/<groupname>/` for
+every job. Home (`/home/<user>`) is a 20 GiB per-user area meant for
+code and scripts; the group data area carries ~5 TiB per group and is
+the intended job-execution space. Large outputs (matrix files, result
+archives) can exhaust the home quota mid-run. `pjsub`'s submit-time
+directory check also prefers the data area — the plugin passes
+`--no-check-directory` automatically, so running from home *works*.
+That is not the same as right.
+
+Read the concrete path live instead of guessing the volume number:
+`accountd -E` on the login node lists the account's project groups,
+their `/vol0X0X/data/<group>/` paths, and quota usage.
+
 ## The standard A64FX layout
 
 4 ranks per node (`processes_per_node: 4`) with 12 OpenMP threads per rank

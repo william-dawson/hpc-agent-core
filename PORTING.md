@@ -136,7 +136,11 @@ assumptions *before* writing a line of port code, not after.
   (`-pe`) exist? Does `$SGE_HGR_gpu` (or equivalent) need translating to
   `CUDA_VISIBLE_DEVICES` yourself, or is GPU isolation automatic?
 - **Storage**: tiers (home/group/scratch), paths, quotas, which are
-  node-local vs shared, auto-purge policies.
+  node-local vs shared, auto-purge policies. Two questions that are easy
+  to miss: *where must a job run from* — is executing out of the home
+  area forbidden outright, or merely quota-trapped? — and *what live
+  command maps projects to their data-area paths*, so skills can read
+  the correct volume at runtime instead of hardcoding one.
 - **Software environment**: Lmod/environment-modules? Spack? Containers
   only? Conda/venv only? This shapes your guide, not your code.
 - **Login mechanics**: SSH hostname, how a new key gets registered (a web

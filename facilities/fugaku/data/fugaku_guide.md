@@ -73,6 +73,13 @@ The current directory is not a data area. (directory: /vol000N/groupname/usernam
 Specify --no-check-directory option if you want to submit jobs outside the data area.
 ```
 
+That check is only the submit-time gate; it is not the sizing rule. The
+job-execution area is a group data volume: home is a 20 GiB per-user
+area for code and scripts, while `/vol0n0m/data/<groupname>/` carries
+~5 TiB per group. Run jobs from the data area. `accountd -E` on the
+login node lists the account's project groups, their data-area paths,
+and live quota usage — read the volume number there, don't guess it.
+
 RIKEN's own docs describe this same combination — submitting from a home
 directory, with the check disabled — as the expected way to run a job
 outside a group data volume. This plugin's `submit_job` already passes
