@@ -247,12 +247,16 @@ function saveSelection(slugs: string[]): void {
 }
 
 /**
- * The first-session ask. Loops single-selects (pi has no multi-select) with
- * a "Done" terminator. Facilities the user already configured are pre-
- * checked. Writes the result so later sessions skip the ask. Returns the
- * selected slugs (possibly empty). In non-interactive modes there is no UI
- * to ask with, so we persist an empty selection and move on — tools still
- * work, the user adds skills later via /hpc-add or by editing the file.
+ * The first-session ask. pi has no multi-select, so this is a toggle loop:
+ * every facility is shown each round with a [x]/[ ] marker reflecting its
+ * current selection, picking one flips its state, and a Done terminator
+ * commits. Facilities the user already configured (~/.hpc-agent/<slug>.json
+ * present) are pre-selected so a configured machine's skills load without an
+ * extra click — but the marker makes that visible and reversible, not silent.
+ * Writes the result so later sessions skip the ask. In non-interactive modes
+ * there is no UI to ask with, so we persist an empty selection and move on —
+ * tools still work, the user adds skills later via /hpc-add or by editing
+ * the file.
  */
 async function ensureSelection(ctx: any): Promise<string[]> {
   if (loadSelection() !== null) return currentSelection!;
@@ -269,23 +273,27 @@ async function ensureSelection(ctx: any): Promise<string[]> {
   const slugByLabel = new Map<string, string>();
   const done = "➤  Done";
   while (true) {
-    const remaining = facs.filter((f) => !chosen.has(f.slug));
     const opts: string[] = [];
     slugByLabel.clear();
-    for (const f of remaining) {
+    for (const f of facs) {
       const tag = f.live_validated ? "" : "  (awaiting live validation)";
-      const label = `${f.display_name}  [${f.slug}]${tag}`;
+      const mark = chosen.has(f.slug) ? "[x]" : "[ ]";
+      const label = `${mark} ${f.display_name}  [${f.slug}]${tag}`;
       opts.push(label);
       slugByLabel.set(label, f.slug);
     }
     opts.push(done);
+    const count = chosen.size;
     const pick = await ctx.ui.select(
-      "Add an HPC facility to load skills for (pick one, repeat, then Done)",
+      `HPC facilities to load skills for (${count} selected). Pick to toggle, then Done.`,
       opts,
     );
     if (!pick || pick === done) break;
     const slug = slugByLabel.get(pick);
-    if (slug) chosen.add(slug);
+    if (slug) {
+      if (chosen.has(slug)) chosen.delete(slug);
+      else chosen.add(slug);
+    }
   }
   const list = [...chosen];
   saveSelection(list);
