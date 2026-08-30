@@ -364,7 +364,10 @@ def fs_mkdir(facility: str, path: str) -> str:
 @_configured_facility_tool
 def fs_upload(facility: str, local_path: str, remote_path: str) -> dict:
     """Upload a local file to a facility via rsync (falling back to scp),
-    with a SHA-256 verification of the transfer. (IRI: POST /api/v1/filesystem/upload/{resource_id} — deviation: rsync/scp)"""
+    with a SHA-256 verification of the transfer. (IRI: POST /api/v1/filesystem/upload/{resource_id} — deviation: rsync/scp)
+
+    Stage uploads under `~/agent/work/...` (the agent's visible scratch
+    area), never in the home-directory root."""
     return upload_file(facility, Path(local_path), remote_path)
 
 

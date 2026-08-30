@@ -56,6 +56,8 @@ loaded modules, shell variables, and activated environments do **not** persist
 to the next call. Use explicit paths or repeat the minimal setup in a later
 command. If a workflow genuinely needs a long stateful script or heavy
 computation, create and submit a job instead of running it on the login node.
+Files a command sequence needs (uploads, source trees, outputs) live under
+`~/agent/work/…`, never in the home-directory root.
 
 ## Git-over-SSH authentication failures
 

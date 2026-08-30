@@ -43,6 +43,11 @@ this hub port still needs a new live job when access returns.
   `get_resources(facility="miyabi")` (live occupancy) and
   `get_facility(facility="miyabi")` (static limits) — don't guess.
 - Don't run heavy computation on the login node — submit a job instead.
+- Stage anything the cluster needs (source trees, inputs, uploads, run
+  directories) under `~/agent/work/<descriptive-name>/`, never in the
+  home-directory root. `~/agent/` is the agent's visible scratch area —
+  `~/agent/jobs` already holds every submitted script — and the home
+  root stays the user's own.
 - Don't guess facility-specific details not covered by the notes above —
   use `search_docs(facility="miyabi", query=...)` on the `hpc-docs`
   server. It searches a bundled guide, not a live site — never invent a URL

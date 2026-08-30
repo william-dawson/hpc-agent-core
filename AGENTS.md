@@ -45,6 +45,12 @@ Two consequences worth knowing before you change anything here:
   maximally generic mechanism if a straightforward subclass override reads
   better (see `facilities/rccs_cloud/facility.py`'s `CloudSlurmBackend` for
   the pattern).
+- **Agent scratch goes under `~/agent/`, never the home-directory root.**
+  `~/agent/jobs/` already holds rendered job scripts (visible-directory
+  bias: agent artifacts live somewhere the user can audit). Uploads, source
+  trees, and run directories extend the same idea — they belong under
+  `~/agent/work/`. The skill templates tell agents this; tool behavior stays
+  path-explicit and doesn't silently reroot.
 - **The MCP server must never fail to start.** Per-facility config is read
   lazily, at tool-call time, never at import time.
 - **Never write to stdout in server code** — MCP stdio transport uses it
