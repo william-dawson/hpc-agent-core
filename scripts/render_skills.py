@@ -31,7 +31,9 @@ per (facility, workflow) pair.  ``plugins/hpc`` stays small: it owns the
 shared MCP servers and the one universal discovery skill, while a user only
 installs a facility pack after choosing that facility. A facility PR that
 adds/edits skill_notes/*.md must re-run this (no --check) and commit the
-result; CI's --check run catches a PR that forgot to.
+result; CI's --check run catches a PR that forgot to. Plugin skill folders
+may also contain hand-authored custom skills; this renderer never treats
+those as stale or tries to manage them.
 """
 import argparse
 import json
@@ -115,7 +117,6 @@ def main() -> int:
 
     stale = []
     written = []
-    seen_dirs: dict[Path, set[Path]] = {}
 
     # Facility-unique skills: a workflow only one machine has, with no
     # shared template to render from. Fugaku's build guidance is the
@@ -126,13 +127,11 @@ def main() -> int:
     # placeholders substituted so they can still say facility="{{SLUG}}".
     for fac in facilities:
         facility_skills = skills_dir(fac)
-        seen_dirs[facility_skills] = set()
         for skill_dir in sorted((fac["_dir"] / "skills").glob("*/")):
             source = skill_dir / "SKILL.md"
             if not source.exists():
                 continue
             out_dir = facility_skills / f"{fac['slug']}-{skill_dir.name.rstrip('/')}"
-            seen_dirs[facility_skills].add(out_dir)
             out_path = out_dir / "SKILL.md"
             rendered = render_one(source.read_text(), fac, "__unique__")
             if out_path.exists() and out_path.read_text() == rendered:
@@ -150,7 +149,6 @@ def main() -> int:
             facility_skills = skills_dir(fac)
             out_dir = facility_skills / f"{fac['slug']}-{workflow}"
             out_path = out_dir / "SKILL.md"
-            seen_dirs[facility_skills].add(out_dir)
             rendered = render_one(template_text, fac, workflow)
             current = out_path.read_text() if out_path.exists() else None
             if current == rendered:
@@ -161,35 +159,16 @@ def main() -> int:
                 out_path.write_text(rendered)
                 written.append(out_path)
 
-    # A generated skill directory whose (facility, workflow) no longer
-    # exists (a template or a facility.json was removed) is stale output,
-    # not a false positive — flag it the same way, but never auto-delete
-    # (deleting a directory silently is a bigger surprise than leaving an
-    # extra one for a human to remove deliberately).
-    orphans = []
-    for facility_skills, expected in seen_dirs.items():
-        if facility_skills.exists():
-            for existing in facility_skills.iterdir():
-                if existing.is_dir() and existing not in expected:
-                    orphans.append(existing)
-
     rel = [str(p.relative_to(ROOT)) for p in stale]
     if args.check:
-        if rel or orphans:
-            if rel:
-                print("Generated skills are stale:", *rel, sep="\n  ")
-            if orphans:
-                print("Orphaned generated-skill directories (template or facility removed):",
-                      *[str(p.relative_to(ROOT)) for p in orphans], sep="\n  ")
+        if rel:
+            print("Generated skills are stale:", *rel, sep="\n  ")
             print("\nRun: python scripts/render_skills.py")
             return 1
         print(f"Generated skills up to date ({len(facilities)} facilities x {len(templates)} workflows).")
         return 0
 
     print(f"Rendered {len(written)} skill file(s) across {len(facilities)} facilities.")
-    if orphans:
-        print("Orphaned generated-skill directories (remove manually if intentional):",
-              *[str(p.relative_to(ROOT)) for p in orphans], sep="\n  ")
     return 0
 
 

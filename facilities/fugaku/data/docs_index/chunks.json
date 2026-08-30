@@ -56,7 +56,7 @@
   {
     "breadcrumb": "Fugaku Job Scheduler & Storage Guide > 9. Accounting and quotas",
     "url": "",
-    "text": "Every submission needs a project group (`-g`, see §2). There is no\nCPU-hour \"budget\" ledger exposed through the scheduler — instead:\n\n- `pjstat --limit` — your live LIMIT vs ALLOC for concurrent submissions\n  and node/core use, per-user and per-group.\n- `pjacl --rg <name>` — the min/max/default resource values currently\n  configured for a resource group under your account.\n\nRun `id` to see which project groups your account belongs to (the shared\n`fugaku` group is not one you can submit jobs under).",
+    "text": "Every submission needs a project group (`-g`, see §2). Fugaku Points are\nthe project-level balance used by the priority `f-pt` resource group. Use\n`get_projects` to list the current user's eligible groups, their resource\ngroups, and any available point summaries; use `get_project_allocations`\nwith one of those group names for its full `GROUP_POINT` values from\n`accountj_pt`. The `trial` group has no point row and is restricted to the\nfree `spot-*` resource groups.\n\nPJM does not expose a separately verified per-user share of a group's points.\nFor concurrent submission and node/core limits, use:\n\n- `pjstat --limit` — your live LIMIT vs ALLOC for concurrent submissions\n  and node/core use, per-user and per-group.\n- `pjacl --rg <name>` — the min/max/default resource values currently\n  configured for a resource group under your account.\n\nThe shared `fugaku` Unix group is not one you can submit jobs under and is\nexcluded from `get_projects`.",
     "id": 9
   },
   {

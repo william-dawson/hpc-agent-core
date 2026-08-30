@@ -45,9 +45,11 @@ Fujitsu's PJM rather than Slurm.
   containers and wheels will not run. Cross-compilation is the norm — see
   the `fugaku-build` skill, which covers the four verified toolchains.
 - **Scheduler**: PJM. `pjsub` submits, `pjstat` queries, `pjdel` cancels,
-  `pjalter` changes a queued job's elapse limit. There is no `sacct`, no
-  `squeue`, and no per-project `sacctmgr` — so `get_projects` and the
-  allocation tools are not available on this facility and will say so.
+  `pjalter` changes a queued job's elapse limit. There is no `sacct`,
+  `squeue`, or `sacctmgr`; nevertheless, `get_projects` lists the current
+  user's PJM groups through `id -Gn`, and `get_project_allocations` reports
+  a group's Fugaku Points from `accountj_pt` when that group has point
+  accounting. PJM exposes no separately verified per-user point share.
 - **Resource groups** (the PJM equivalent of a partition): `small`
   (1–384 nodes, ≤72h), `large` (385+ nodes, ≤24h), `int` (interactive),
   `f-pt` (priority, **consumes Fugaku Points**), `spot-*` (low priority).

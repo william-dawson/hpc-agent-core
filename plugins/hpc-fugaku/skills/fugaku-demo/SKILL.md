@@ -80,12 +80,13 @@ existing jobs via `/fugaku-monitoring-jobs`, or ask about the machine via
 
 ## Worth knowing before demoing Fugaku
 
-**Step 1 will not show projects.** Fugaku has no `sacctmgr`, so
-`get_projects` raises a clear "not implemented" error here rather than
-returning accounts. That's expected — skip it and use
-`run_command_on_cluster(facility="fugaku", command="id")` to show the
-account's real project groups instead, since a valid group is what actually
-gates submission.
+**Step 1 does show projects.** `get_projects` derives the project groups
+from `id -Gn`, excludes the unusable shared `fugaku` group, and reports each
+group's usable resource groups. It also includes a Fugaku Points summary
+when the group has point accounting. Use
+`get_project_allocations(facility="fugaku", project_id="<group>")` when
+you need the full point balance for a listed group; `trial` deliberately has
+no point row and can use only `spot-*` resource groups.
 
 **Step 2's `get_resources` returns raw `pjstat --rsc` text**, not structured
 occupancy — say so rather than presenting it as a partition table.

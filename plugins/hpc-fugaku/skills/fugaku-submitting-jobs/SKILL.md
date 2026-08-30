@@ -84,9 +84,9 @@ their `/vol0X0X/data/<group>/` paths, and quota usage.
 ## f-pt costs Fugaku Points
 
 **`f-pt` is a priority queue that consumes Fugaku Points — it is not
-free.** Confirm with the user before using it, and check the remaining
-balance with `run_command_on_cluster(facility="fugaku",
-command="accountj_pt")`. Use it only for deliberate fast-turnaround
+free.** Confirm with the user before using it, and check the selected
+project's remaining balance with `get_project_allocations(facility="fugaku",
+project_id="<group>")`. Use it only for deliberate fast-turnaround
 validation; revert to `small` for production runs.
 
 Use `small` with a short `elapse` for validation jobs.

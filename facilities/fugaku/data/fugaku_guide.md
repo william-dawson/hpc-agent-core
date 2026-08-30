@@ -287,16 +287,24 @@ running, cancel and resubmit instead.
 
 ## 9. Accounting and quotas
 
-Every submission needs a project group (`-g`, see §2). There is no
-CPU-hour "budget" ledger exposed through the scheduler — instead:
+Every submission needs a project group (`-g`, see §2). Fugaku Points are
+the project-level balance used by the priority `f-pt` resource group. Use
+`get_projects` to list the current user's eligible groups, their resource
+groups, and any available point summaries; use `get_project_allocations`
+with one of those group names for its full `GROUP_POINT` values from
+`accountj_pt`. The `trial` group has no point row and is restricted to the
+free `spot-*` resource groups.
+
+PJM does not expose a separately verified per-user share of a group's points.
+For concurrent submission and node/core limits, use:
 
 - `pjstat --limit` — your live LIMIT vs ALLOC for concurrent submissions
   and node/core use, per-user and per-group.
 - `pjacl --rg <name>` — the min/max/default resource values currently
   configured for a resource group under your account.
 
-Run `id` to see which project groups your account belongs to (the shared
-`fugaku` group is not one you can submit jobs under).
+The shared `fugaku` Unix group is not one you can submit jobs under and is
+excluded from `get_projects`.
 
 ## 10. Other things worth knowing
 
