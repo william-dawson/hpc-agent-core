@@ -27,11 +27,99 @@ unrelated pre/post-processing work. The probe succeeded and the answer was
 wrong.
 """
 import json
+import subprocess
 import sys
 
 from hpc_agent_core import config
 
 OK, WARN, FAIL = "✓", "!", "✗"
+
+_SSH_DISABLED = frozenset({"", "no", "false", "off", "none", "0"})
+_SSH_CONTROL_MASTERS = frozenset({"yes", "auto", "ask", "autoask"})
+
+
+def _ssh_config(host: str) -> dict[str, str] | None:
+    """Return OpenSSH's resolved settings for ``host``, without connecting.
+
+    ``ssh -G`` applies the user's normal SSH configuration but does not open
+    a network connection. It is therefore the right authority for transport
+    settings such as ControlMaster: parsing ~/.ssh/config ourselves would
+    miss Include files, Match blocks, and system-wide configuration.
+    """
+    try:
+        result = subprocess.run(
+            ["ssh", "-G", host], capture_output=True, text=True,
+            timeout=10, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"{WARN} ssh multiplexing: could not inspect local SSH config: {exc}")
+        return None
+    if result.returncode:
+        detail = (result.stderr or result.stdout or "").strip()
+        print(f"{WARN} ssh multiplexing: ssh -G failed for {host!r}: {detail}")
+        return None
+    return {
+        key: value
+        for line in result.stdout.splitlines()
+        if (parts := line.split(None, 1)) and len(parts) == 2
+        for key, value in [parts]
+    }
+
+
+def check_ssh_multiplexing(facility: str) -> bool:
+    """Report whether repeated SSH calls can reuse an OpenSSH master.
+
+    This is advisory: a facility remains usable without multiplexing, and a
+    user may deliberately opt out with ``ControlMaster no``. The check is
+    local-only: neither ``ssh -G`` nor ``ssh -O check`` authenticates to or
+    opens a fresh connection to the cluster.
+    """
+    from hpc_agent_core.middleware import is_local_host
+
+    host = config.ssh_host(facility)
+    if is_local_host(host):
+        print(f"{OK} ssh multiplexing: not applicable (local host {host})")
+        return True
+
+    settings = _ssh_config(host)
+    if settings is None:
+        return True
+    master = settings.get("controlmaster", "").lower()
+    control_path = settings.get("controlpath", "").lower()
+    persist = settings.get("controlpersist", "").lower()
+
+    if master in _SSH_DISABLED:
+        print(f"{WARN} ssh multiplexing: explicitly disabled by ControlMaster {master or 'no'}")
+        return True
+    if master not in _SSH_CONTROL_MASTERS or control_path in _SSH_DISABLED:
+        print(
+            f"{WARN} ssh multiplexing: not configured; repeated cluster calls "
+            "will open new SSH connections. Use the configuring skill to add "
+            "ControlMaster auto, ControlPath, and ControlPersist."
+        )
+        return True
+    if persist in _SSH_DISABLED:
+        print(
+            f"{WARN} ssh multiplexing: ControlPersist is disabled; a master "
+            "will not remain available between calls. Set ControlPersist 30m."
+        )
+
+    try:
+        result = subprocess.run(
+            ["ssh", "-O", "check", host], capture_output=True, text=True,
+            timeout=10, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"{WARN} ssh multiplexing: could not check master socket: {exc}")
+        return True
+    if result.returncode == 0:
+        print(f"{OK} ssh multiplexing: active for {host}")
+    else:
+        print(
+            f"{WARN} ssh multiplexing: configured but no active master for "
+            f"{host}. Start one interactively with: ssh -MNf {host}"
+        )
+    return True
 
 
 def check_config_file(facility: str) -> bool:
@@ -198,6 +286,7 @@ def check_facility(facility: str) -> bool:
     ssh_ok = check_ssh(facility, ok_token)
     results = [
         check_config_file(facility),
+        check_ssh_multiplexing(facility),
         ssh_ok,
         get_backend(facility).check_scheduler() if ssh_ok else False,
         check_docs_guide_bundled(facility),

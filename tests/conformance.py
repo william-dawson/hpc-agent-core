@@ -18,6 +18,7 @@ import contextlib
 import os
 import pathlib
 import shlex
+import subprocess
 import sys
 import tempfile
 import traceback
@@ -1097,6 +1098,33 @@ def check_repo() -> None:
             index.search("anything", embed_client=token)
         vector.assert_called_once_with("anything", 5, token)
 
+    def ssh_multiplexing_detection_is_advisory_and_uses_resolved_config():
+        """Doctor must inspect local OpenSSH config without connecting."""
+        from hpc_agent_core.doctor import check_ssh_multiplexing
+
+        resolved = subprocess.CompletedProcess(
+            ["ssh", "-G", "example"], 0,
+            "controlmaster auto\ncontrolpath /tmp/ssh-%C\ncontrolpersist 30m\n",
+            "",
+        )
+        active = subprocess.CompletedProcess(
+            ["ssh", "-O", "check", "example"], 0, "", "Master running")
+        with patch("hpc_agent_core.doctor.config.ssh_host", return_value="example"), \
+                patch("hpc_agent_core.doctor.subprocess.run",
+                      side_effect=[resolved, active]) as run:
+            assert check_ssh_multiplexing("rikyu")
+        assert run.call_args_list[0].args[0] == ["ssh", "-G", "example"]
+        assert run.call_args_list[1].args[0] == ["ssh", "-O", "check", "example"]
+
+        disabled = subprocess.CompletedProcess(
+            ["ssh", "-G", "example"], 0, "controlmaster no\n", "",
+        )
+        with patch("hpc_agent_core.doctor.config.ssh_host", return_value="example"), \
+                patch("hpc_agent_core.doctor.subprocess.run",
+                      return_value=disabled) as run:
+            assert check_ssh_multiplexing("rikyu")
+        assert run.call_count == 1, "ControlMaster no must skip socket probing"
+
     def a_broken_facility_cannot_deny_the_server():
         """One facility failing to import must not take down the others.
 
@@ -1185,6 +1213,8 @@ def check_repo() -> None:
           fugaku_update_quotes_duration_as_one_argument)
     check("docs embedding credentials are refreshed per search",
           docs_embedding_client_is_not_cached)
+    check("SSH multiplexing is detected without opening a connection",
+          ssh_multiplexing_detection_is_advisory_and_uses_resolved_config)
     check("a broken facility cannot deny the server", a_broken_facility_cannot_deny_the_server)
     check("facility data ships in a wheel", facility_data_is_declared_as_package_data)
     check("generated skills have matching frontmatter", generated_skills_are_wellformed)

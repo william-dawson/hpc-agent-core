@@ -49,6 +49,22 @@ about what's missing or being changed.
    - Verify with: `ssh -o BatchMode=yes <host> 'echo ok'` (BatchMode
      matters — the server cannot answer a password prompt; key-based auth
      is required). Not applicable for `"host": "localhost"`.
+   - **Enable SSH multiplexing unless the user explicitly opts out.** This
+     lets repeated agent operations reuse one authenticated connection rather
+     than making the login node authenticate every call. Recommend an SSH
+     alias and, after showing the exact change and receiving confirmation,
+     add a narrowly scoped block to `~/.ssh/config` without overwriting any
+     unrelated entries:
+     ```sshconfig
+     Host <alias>
+       ControlMaster auto
+       ControlPath ~/.ssh/controlmasters/%C
+       ControlPersist 30m
+     ```
+     Create `~/.ssh/controlmasters` with mode `0700`, then open the initial
+     master in the user's own terminal with `ssh -MNf <alias>`. Set
+     `ssh.host` to that same alias. `ControlMaster no` is an intentional
+     opt-out; do not add or change multiplexing settings when it is present.
 2. **Embedding API key** (optional — skippable; BM25 keyword search still
    works without it). Store it under `embedding.api_key`.
 3. **Write the file** to `~/.hpc-agent/rccs_cloud.json` (`mkdir -p

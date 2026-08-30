@@ -71,6 +71,12 @@ file per machine, all in one directory. The minimum is an ssh host:
 - `ssh.host` is a `~/.ssh/config` alias, a `user@hostname`, or
   `"localhost"` if the agent is running directly on that cluster's own
   front-end node (no ssh at all). `RIKYU_HOST` overrides the file.
+- For a remote host, use an SSH alias with OpenSSH connection multiplexing
+  (`ControlMaster auto`, a `ControlPath`, and `ControlPersist 30m`). This
+  reuses one authenticated connection for repeated agent calls, reducing
+  login-node authentication load and making operations faster. The
+  configuring skill can add the exact SSH config block after showing it and
+  receiving confirmation; `ControlMaster no` is an explicit opt-out.
 - Some machines need more. Fugaku requires a project group on every job,
   HOKUSAI requires a project account. **You don't have to look any of this
   up**: any tool call that can't reach a cluster replies with that
