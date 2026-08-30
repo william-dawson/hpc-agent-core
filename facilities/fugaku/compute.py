@@ -53,6 +53,36 @@ _jobs_dir = "agent/jobs"  # PORTING.md §10: bias agent-created files into one
 _MD_CODES = "NM|ST|BU|MW"
 _ST_CODES = "ACC|CCL|ERR|EXT|HLD|QUE|RJT|RNA|RNE|RNO|RNP|RSM|RUN|SPD|SPP"
 
+# Resource-group universe for rscunit_ft01. `pjshowrsc` returns no rows on
+# this deployment (see get_live_resources), so the list is static; anything
+# narrower the account can't use is handled by pjsub's own ACL at submit.
+# `trial` (the Startup Project every new account carries) is restricted to
+# the spot-* groups — small/large/int are rejected under it.
+_RSCGRP_UNIVERSE = ("small", "large", "int", "f-pt",
+                    "spot-small", "spot-large", "spot-int", "spot-middle")
+
+
+def _parse_group_point(csv_text: str) -> dict | None:
+    """The first GROUP_POINT row of `accountj_pt -g <group> -c`.
+
+    Column order per the command's own header row:
+    GROUP, POINT, LIMIT(N), USAGE(N), AVAILABLE(N) — key names mirror those
+    headers rather than guessing at their units. Returns None when the
+    group carries no point accounting at all (e.g. trial).
+    """
+    for line in csv_text.splitlines():
+        if not line.startswith('"GROUP_POINT"'):
+            continue
+        cells = [cell.strip('"') for cell in line.split('","')]
+        if len(cells) >= 6:
+            return {
+                "point_total": int(cells[2]),
+                "limit_n": int(cells[3]),
+                "usage_n": int(cells[4]),
+                "available_n": int(cells[5]),
+            }
+    return None
+
 _STATE_MAP = {
     "ACC": JobState.QUEUED,     # ACCEPT: submission accepted, not yet running
     "QUE": JobState.QUEUED,     # QUEUED: waiting for execution order
@@ -192,6 +222,61 @@ class PJMBackend(SchedulerBackend):
             return run_command(self.facility, cmd)
         except RuntimeError:
             return ""
+
+    def get_projects(self) -> list[dict]:
+        """PJM project groups the current user may charge (`#PJM -g`).
+
+        Groups come from `id -Gn`; the shared `fugaku` group is excluded
+        because pjsub denies it by ACL (verified live). PJM has no QOS
+        concept (`qos` stays empty), and rscgrp authorization is per-user
+        ACL, not per billing group — `pjacl` accepts every resource group
+        read-only, so per-group authorization is not discoverable beyond
+        the documented trial restriction, which is applied here. Groups
+        that bill Fugaku Points also carry a `points` mapping from
+        `accountj_pt -g <group> -c`.
+        """
+        groups = sorted(set(run_command(self.facility, "id -Gn").split()) - {"fugaku"})
+        projects = []
+        for group in groups:
+            row = {"account": group}
+            row["resource_groups"] = (
+                [r for r in _RSCGRP_UNIVERSE if r.startswith("spot-")]
+                if group == "trial" else list(_RSCGRP_UNIVERSE)
+            )
+            row["qos"] = []
+            points = self._group_point_or_none(group)
+            if points:
+                row["points"] = points
+            projects.append(row)
+        return projects
+
+    def get_project_allocations(self, project_id: str) -> dict:
+        """Fugaku point accounting for one project group."""
+        points = self._group_point_or_none(project_id, strict=True)
+        if not points:
+            raise ValueError(
+                f"No Fugaku point accounting found for project {project_id!r} "
+                "— groups that don't bill Fugaku Points (trial, free of "
+                "points by construction) have no GROUP_POINT row. "
+                "get_projects lists the chargeable groups."
+            )
+        return {"project_id": project_id, **points}
+
+    def _group_point_or_none(self, group: str, strict: bool = False) -> dict | None:
+        """The group's GROUP_POINT row, or None on query failure/no row.
+
+        strict=True lets the command failure itself surface — used by
+        get_project_allocations, where a failed SSH read must not be
+        masked as "project has no points".
+        """
+        try:
+            return _parse_group_point(
+                run_command(self.facility, f"accountj_pt -g {shlex.quote(group)} -c")
+            )
+        except RuntimeError:
+            if strict:
+                raise
+            return None
 
     def _header(self, spec: JobSpec) -> list[str]:
         attrs, res = spec.attributes, spec.resources
