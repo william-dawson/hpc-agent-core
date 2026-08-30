@@ -34,7 +34,7 @@ per partition).
    | Partition | Module command |
    |-----------|----------------|
    | fx700 | `module load system/fx700 FJSVstclanga` |
-   | genoa, genoa-m | `module load system/genoa mpi/openmpi-x86_64` |
+   | genoa, genoa-m | `module load system/genoa mpi/mpich-x86_64` |
    | a100 | `module load system/a100 nvhpc` |
    | b300 | `module load system/b300 nvhpc` |
    | ai-h100l-pu | `module load system/ai-h100l nvhpc` |
@@ -60,7 +60,7 @@ per partition).
    ```json
    {
      "name": "my-cpu-job",
-     "executable": "module load system/genoa mpi/openmpi-x86_64 && mpirun -np 4 ./a.out",
+     "executable": "module load system/genoa mpi/mpich-x86_64 && mpirun -np 4 ./a.out",
      "directory": "/home/<user>/work",
      "resources": {"node_count": 1, "processes_per_node": 4},
      "attributes": {"duration": "01:00:00", "queue_name": "genoa"}
@@ -96,7 +96,7 @@ per partition).
 This cluster's Slurm has **no PMI support**, so `srun` cannot bootstrap MPI
 ranks — an MPI program launched with `srun` will hang or fail to start. Load
 the MPI module, then launch with `mpirun` (OpenMPI) instead:
-`module load system/genoa mpi/openmpi-x86_64 && mpirun -np <n> ./a.out`.
+`module load system/genoa mpi/mpich-x86_64 && mpirun -np <n> ./a.out`.
 
 This is also why most work here should **stay on a single node**: `mpirun`
 without PMI needs its own hostfile/SSH-based remote launch for multi-node

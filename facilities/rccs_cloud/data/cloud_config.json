@@ -3,7 +3,7 @@
   "login_host": "login.cloud.r-ccs.riken.jp",
   "character": "Heterogeneous research testbed. ~20 partition families covering CPU-only, NVIDIA GPU, AMD GPU, and Intel GPU hardware. Pick the partition for the hardware you intend to use; modules, GPU flags, and even the OS are partition-specific.",
   "notes": [
-    "Every partition has its own system module. Always load system/<partition> first, e.g. 'module load system/genoa mpi/openmpi-x86_64'. Never use a system module from a different partition.",
+    "Every partition has its own system module. Always load system/<partition> first, e.g. 'module load system/genoa mpi/mpich-x86_64'. Never use a system module from a different partition.",
     "source /etc/profile is required in every batch script before any module commands. submit_job's rendered script emits it automatically right after the #SBATCH header — do not add it to executable.",
     "GPU allocation: GPUs are requested with --gpus=<n>, and --nodes is always emitted explicitly. Exceptions: qc-gh200 and ng-dgx-m[0-3] are unified CPU+GPU superchips — no --gpus flag is emitted for them.",
     "ng-dgx-m[0-3] runs Ubuntu; all other partitions run Rocky Linux.",
@@ -16,8 +16,8 @@
   "partitions": {
     "cpu_only": [
       {"name": "fx700",   "nodes": 31, "cpu": "Fujitsu A64FX",          "arch": "aarch64 (A64FX)", "memory_gb": 32,   "network": "InfiniBand EDR 100Gbps",   "modules": "module load system/fx700 FJSVstclanga",                      "notes": "Cross-compile on r340"},
-      {"name": "genoa",   "nodes": 16, "cpu": "AMD EPYC 9684X",          "arch": "x86_64",          "memory_gb": 768,  "network": "Ethernet 1Gbps",           "modules": "module load system/genoa mpi/openmpi-x86_64",                "notes": "General-purpose CPU (default partition)"},
-      {"name": "genoa-m", "nodes": 1,  "cpu": "AMD EPYC 9684X x2",       "arch": "x86_64",          "memory_gb": 3072, "network": "Ethernet 1Gbps",           "modules": "module load system/genoa mpi/openmpi-x86_64",                "notes": "Large-memory node (3 TB)"},
+      {"name": "genoa",   "nodes": 16, "cpu": "AMD EPYC 9684X",          "arch": "x86_64",          "memory_gb": 768,  "network": "Ethernet 1Gbps",           "modules": "module load system/genoa mpi/mpich-x86_64",                "notes": "General-purpose CPU (default partition)"},
+      {"name": "genoa-m", "nodes": 1,  "cpu": "AMD EPYC 9684X x2",       "arch": "x86_64",          "memory_gb": 3072, "network": "Ethernet 1Gbps",           "modules": "module load system/genoa mpi/mpich-x86_64",                "notes": "Large-memory node (3 TB)"},
       {"name": "r340",    "nodes": 1,  "cpu": "Intel Xeon E-2134",       "arch": "x86_64",          "memory_gb": 64,   "network": "Ethernet 1Gbps",           "modules": "(none required)",                                            "notes": "Multi-user; cross-compilation environment for fx700"}
     ],
     "nvidia_gpu": [

@@ -76,7 +76,7 @@ silently links the wrong libraries or fails at runtime.
 | Partition | Module command |
 |-----------|----------------|
 | fx700 | `module load system/fx700 FJSVstclanga` |
-| genoa, genoa-m | `module load system/genoa mpi/openmpi-x86_64` |
+| genoa, genoa-m | `module load system/genoa mpi/mpich-x86_64` |
 | a100 | `module load system/a100 nvhpc` |
 | b300 | `module load system/b300 nvhpc` |
 | ai-h100l, ai-h100l-pu | `module load system/ai-h100l nvhpc` |
@@ -95,7 +95,7 @@ silently links the wrong libraries or fails at runtime.
 | r340 | (none required) |
 
 Put the module load at the start of the job's command, e.g.
-`module load system/genoa mpi/openmpi-x86_64 && mpirun -np <n> ./app`. After a
+`module load system/genoa mpi/mpich-x86_64 && mpirun -np <n> ./app`. After a
 system module is loaded, `module avail` shows the rest of the software for
 that partition. Use `mpirun`, not `srun`, to launch MPI ranks — see "MPI
 launch" below.
