@@ -272,6 +272,15 @@ def check_facility(slug: str) -> None:
         })
         assert failed.status.state.value == "failed"
         assert failed.status.exit_code == 2
+        with_workdir = backend._job({
+            "Job_Id": "125.opbs", "job_state": "R",
+            "Variable_List": (
+                "PBS_O_HOME=/home/u,PBS_O_WORKDIR=/home/u/agent/jobs,"
+                "PBS_O_HOST=login"
+            ),
+        })
+        assert with_workdir.status.meta_data["workdir"] == "/home/u/agent/jobs"
+        assert backend._pbs_workdir("PBS_O_HOME=/home/u") == ""
 
         invalid = [
             ("debug-c", {"processes_per_node": 113}),
@@ -412,6 +421,7 @@ def check_facility(slug: str) -> None:
                   "custom_attributes": {"resource_type": "gpu_h",
                                         "gpu_compute_mode": "1"}}),
             ({}, {"account": "paid", "queue_name": "all.q"}),
+            ({}, {"account": "", "queue_name": "prior"}),
             ({}, {"account": "paid", "custom_attributes": {"unknown": "x"}}),
         ]
         for resources, attributes in invalid_specs:
@@ -568,6 +578,18 @@ def check_facility(slug: str) -> None:
         """Exercise both schedulers and the local routing index offline."""
         if slug != "cell2026":
             return
+
+        # AGE may be outside PATH. Doctor must check the same configured
+        # Grid Engine binaries that the runtime backend invokes.
+        from facilities.cell2026.compute import Cell2026Backend
+        configured = Cell2026Backend("cell2026", ge_bin_prefix="/opt/age/bin")
+        with patch("hpc_agent_core.doctor.check_commands_on_path",
+                   return_value=True) as check_commands:
+            assert configured.check_scheduler()
+        checked = check_commands.call_args.args[1]
+        assert "/opt/age/bin/qsub" in checked
+        assert "/opt/age/bin/qstat" in checked
+        assert "sbatch" in checked
 
         default = bare_spec()
         backend.apply_defaults(default)

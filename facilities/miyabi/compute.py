@@ -274,6 +274,15 @@ class PBSBackend(SchedulerBackend):
         return blocks
 
     @staticmethod
+    def _pbs_workdir(variable_list: str) -> str:
+        """Extract PBS's original submission directory from Variable_List."""
+        for entry in variable_list.split(","):
+            key, separator, value = entry.partition("=")
+            if separator and key == "PBS_O_WORKDIR":
+                return value
+        return ""
+
+    @staticmethod
     def _job(fields: dict[str, str]) -> Job:
         native = fields.get("job_state", "")
         state = _PBS_STATES.get(native, JobState.UNKNOWN)
@@ -298,7 +307,9 @@ class PBSBackend(SchedulerBackend):
                     "job_name": fields.get("Job_Name", ""),
                     "resources_used_walltime": fields.get("resources_used.walltime", ""),
                     "exec_host": fields.get("exec_host", ""),
-                    "workdir": fields.get("Variable_List", ""),
+                    "workdir": PBSBackend._pbs_workdir(
+                        fields.get("Variable_List", "")
+                    ),
                 },
             ),
         )

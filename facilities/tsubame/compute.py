@@ -130,6 +130,13 @@ class TsubameBackend(SchedulerBackend):
         if seconds > 24 * 3600:
             raise ValueError("TSUBAME jobs are limited to 24 hours. Reduce attributes.duration.")
         if attrs.account in (None, ""):
+            if attrs.queue_name == "prior":
+                raise ValueError(
+                    "TSUBAME's 'prior' subscription queue requires a project "
+                    "group. Set attributes.account to one of get_projects()'s "
+                    "groups (or configure defaults.group); leave queue_name "
+                    "blank for the free trial."
+                )
             if res.node_count > 2 or seconds > 180 or priority != "-5":
                 raise ValueError(
                     "A TSUBAME trial job (no account/group) is limited to 2 "

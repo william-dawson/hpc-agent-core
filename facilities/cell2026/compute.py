@@ -541,9 +541,13 @@ class Cell2026Backend(SchedulerBackend):
 
     def check_scheduler(self) -> bool:
         from hpc_agent_core.doctor import check_commands_on_path
+        ge_commands = [
+            self._gridengine._qbin(command)
+            for command in ("qsub", "qstat", "qacct", "qdel", "qhost")
+        ]
         return check_commands_on_path(
             self.facility,
             ["sbatch", "squeue", "scontrol", "scancel", "sinfo",
-             "qsub", "qstat", "qacct", "qdel", "qhost"],
+             *ge_commands],
             "gridengine+slurm",
         )

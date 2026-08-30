@@ -142,14 +142,25 @@ async def job_tier(hpc, slug: str, account: str | None,
     # Output filename is scheduler-specific: Slurm writes slurm-<id>.out,
     # PJM writes <jobname>.<id>.out, and Miyabi PBS writes <jobname>.o<seq>.
     workdir = (status["status"].get("meta_data") or {}).get("workdir", "") or ""
+    if slug == "miyabi":
+        assert workdir.startswith("/"), (
+            "Miyabi PBS status did not report PBS_O_WORKDIR as workdir: "
+            f"{workdir!r}"
+        )
     sequence = job_id.split(".", 1)[0]
-    candidates = [f"{workdir.rstrip('/')}/slurm-{job_id}.out" if workdir else f"slurm-{job_id}.out",
-                  f"agent/jobs/{spec['name']}.{job_id}.out",
-                  f"{workdir.rstrip('/')}/irene_{sequence}.o" if workdir
-                  else f"irene_{sequence}.o",
-                  f"agent/jobs/{spec['name']}.o",
-                  f"{workdir.rstrip('/')}/{spec['name']}.o{sequence}" if workdir
-                  else f"{spec['name']}.o{sequence}"]
+    if slug == "miyabi":
+        # Prove PBS_O_WORKDIR is not merely present but actually usable for
+        # finding the job's output; don't let a generic fallback mask it.
+        candidates = [f"{workdir.rstrip('/')}/{spec['name']}.o{sequence}"]
+    else:
+        candidates = [
+            f"{workdir.rstrip('/')}/slurm-{job_id}.out" if workdir else f"slurm-{job_id}.out",
+            f"agent/jobs/{spec['name']}.{job_id}.out",
+            f"{workdir.rstrip('/')}/irene_{sequence}.o" if workdir else f"irene_{sequence}.o",
+            f"agent/jobs/{spec['name']}.o",
+            f"{workdir.rstrip('/')}/{spec['name']}.o{sequence}" if workdir
+            else f"{spec['name']}.o{sequence}",
+        ]
     out = ""
     for path in candidates:
         try:
