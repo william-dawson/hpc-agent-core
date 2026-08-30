@@ -70,10 +70,17 @@ Shared filesystem is Lustre. Ask the tools for live usage/quota.
 ### Software
 
 Environment modules. **Intel oneAPI is primary** (`module load intel` →
-Intel compilers + Intel MPI). Open MPI is an alternative that **conflicts**
-with Intel MPI — load one only. Launch with `srun`. Singularity for
-containers. Major apps: Gaussian, GROMACS, AMBER, NAMD, GAMESS, ADF, ROOT,
-VMD, GaussView — confirm versions with `module avail` live.
+Intel compilers + Intel MPI; only the LLVM compilers `icx`/`icpx`/`ifx`
+are installed, not the classic `icc`/`icpc`/`ifort`). Open MPI is an
+alternative that **conflicts** with Intel MPI — load one only. Launch
+with `srun`. Singularity for containers. Major apps: Gaussian, GROMACS,
+AMBER, NAMD, GAMESS, ADF, ROOT, VMD, GaussView — confirm versions with
+`module avail` live.
+
+There is **no python/conda module**: the system Python is bare 3.6 with
+no third-party packages. Compute nodes have no direct internet route, so
+bring pure-Python dependencies along (upload and use via `PYTHONPATH`),
+or install into home on the login node first.
 
 ### GPU dialect
 

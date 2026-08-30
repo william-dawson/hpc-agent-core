@@ -47,6 +47,18 @@ MPI** — load one only (`module purge` before switching). Launch with `srun`
 regardless of flavor (unlike RIKYU and R-CCS Cloud, `srun` is the correct
 MPI launcher here).
 
+The installed oneAPI ships **only the LLVM compilers** (`icx`/`icpx`/`ifx`
+and the `mpiicx`/`mpiicpx`/`mpiifx` wrappers). The classic wrappers
+(`mpiicc`/`mpiicpc`/`mpiifort`) are also on `PATH`, but their backing
+compilers (`icc`/`icpc`/`ifort`) are **not installed** — a toolchain or
+build system that names them fails at configure time. New build recipes
+should use the `mpi*fx` wrapper names.
+
+Job shells start with a clean environment: a binary built under
+`module load intel` needs the **same `module load` in the job that runs
+it**, or it fails at launch with exit 127 and an
+`error while loading shared libraries` message (MKL, Intel MPI).
+
 ## GPUs
 
 Request GPUs with `resources.gpus` (a job-total count). One GPU also

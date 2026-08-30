@@ -21,6 +21,9 @@ full. When a job is waiting, check both:
   `OMP_NUM_THREADS` to match `resources.cpu_cores_per_process`.
 - **Conflicting MPI modules** — Intel MPI and Open MPI loaded together.
   Load one only; `module purge` before switching.
+- **Exit 127, `error while loading shared libraries`** — the run job is
+  missing a `module load` that the build used (MKL, Intel MPI); job shells
+  start with a clean environment, so repeat the module loads at runtime.
 
 Read the job's output and its `status.meta_data.native_state` together to
 tell which of these it is. The exact submitted script is kept in
