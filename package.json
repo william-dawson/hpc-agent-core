@@ -1,0 +1,14 @@
+{
+  "name": "hpc-agent-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Unified multi-facility HPC MCP server plus per-facility skills. For MCP-capable harnesses (Codex, Claude Code) the servers register via plugins/hpc/.mcp.json; for pi, the bundled extension in plugins/hpc/pi/ bridges the same MCP servers to native pi tools and gates facility skills by your selection.",
+  "keywords": ["pi-package", "hpc", "slurm", "supercomputer", "multi-facility"],
+  "pi": {
+    "extensions": ["plugins/hpc/pi/extensions/hpc-mcp-bridge.ts"],
+    "skills": ["plugins/hpc/skills"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}
