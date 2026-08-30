@@ -1201,6 +1201,19 @@ def check_repo() -> None:
             assert notes.exists() and notes.read_text().strip(), \
                 f"{manifest.parent.name}: skill_notes/submitting-jobs.md is missing or empty"
 
+    def remote_command_skills_cover_forwarded_git_authentication():
+        """Generated command skills must not guess a generic SSH key path."""
+        root = pathlib.Path(__file__).resolve().parent.parent
+        source = (root / "templates" / "skills" / "remote-command.md.tmpl").read_text()
+        assert "ssh -G <host>" in source
+        assert "forwardagent" in source
+        assert "ssh-add <their-facility-key>" in source
+        assert "never invent a path" in source
+        for facility in config.list_facilities():
+            rendered = (root / "plugins" / "hpc" / "skills" /
+                        f"{facility.slug}-remote-command" / "SKILL.md").read_text()
+            assert "Git-over-SSH authentication failures" in rendered
+
     check("at least one facility is registered", facilities_exist)
     check("unknown facility errors clearly, listing valid slugs", unknown_facility_errors_clearly)
     check("slugs are lowercase and safe", slugs_are_url_and_identifier_safe)
@@ -1220,6 +1233,8 @@ def check_repo() -> None:
     check("generated skills have matching frontmatter", generated_skills_are_wellformed)
     check("scheduler errors aren't mistaken for SSH failures", unreachable_detection_discriminates)
     check("every facility has real submitting-jobs notes", every_facility_has_skill_notes)
+    check("remote-command skills diagnose forwarded Git authentication",
+          remote_command_skills_cover_forwarded_git_authentication)
 
 
 def main() -> int:

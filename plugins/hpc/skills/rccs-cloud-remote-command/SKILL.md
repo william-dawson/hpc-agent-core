@@ -57,6 +57,33 @@ to the next call. Use explicit paths or repeat the minimal setup in a later
 command. If a workflow genuinely needs a long stateful script or heavy
 computation, create and submit a job instead of running it on the login node.
 
+## Git-over-SSH authentication failures
+
+When a remote `git` command fails with an SSH authentication error such as
+`Permission denied (publickey)`, do not guess that SSH agent forwarding is
+enabled or that a key has a conventional filename. Do not copy a private key
+to the cluster, run `ssh-add`, ask for a passphrase, or make any remote-side
+change.
+
+First inspect the **local** resolved SSH configuration for the facility's
+configured `ssh.host` with `ssh -G <host>` (a read-only local check). Use its
+`forwardagent` and `identityfile` results to explain the next step:
+
+- If `forwardagent` is `no`, explain that the cluster connection is not
+  forwarding the user's local SSH agent. Ask whether they want to enable
+  `ForwardAgent yes` for that facility's SSH alias; do not change it unless
+  they approve.
+- If `forwardagent` is `yes`, ask the user to run `ssh-add -l` locally. If
+  the identity registered with **this facility** is absent, they should add
+  the matching private key with `ssh-add <their-facility-key>`. Treat any
+  resolved `identityfile` entries only as hints; never invent a path such as
+  `~/.ssh/id_ed25519`.
+
+After the user confirms the local agent is ready, retry the original Git
+command. If a multiplexed SSH master was opened before forwarding was enabled,
+ask the user to restart that master first. These checks and repairs happen on
+the user's computer, not the cluster.
+
 ## After running: report what actually happened
 
 Give the user a compact execution sketch based on the real outputs, including
