@@ -17,6 +17,7 @@ facility, how to read a failed job) lives in plugins/hpc/skills/, not in
 long docstrings here.
 """
 import shlex
+from functools import wraps
 from pathlib import Path
 
 import hpc_mcp  # noqa: F401 -- import for its side effect: registers every facility
@@ -47,6 +48,27 @@ _TAR_FLAGS = {
 # Facility / resource info
 # ---------------------------------------------------------------------------
 
+def _require_facility_configuration(facility: str) -> None:
+    """Require an explicit, usable SSH destination before a tool dispatches.
+
+    Registered default hosts describe a facility; they are not evidence that
+    this user has configured access to it.  Checking here makes an absent,
+    malformed, or incomplete config fail with the same actionable setup
+    directions before a backend can return a misleading capability result.
+    Remote operations subsequently perform their normal SSH call, which
+    turns a bad host/key into the same setup guidance with the SSH detail.
+    """
+    config.require_facility_configuration(facility)
+
+
+def _configured_facility_tool(func):
+    """Decorate every facility-scoped MCP tool with the common guard."""
+    @wraps(func)
+    def wrapped(facility: str, *args, **kwargs):
+        _require_facility_configuration(facility)
+        return func(facility, *args, **kwargs)
+    return wrapped
+
 @mcp.tool()
 def get_facilities() -> list[dict]:
     """List every facility this server knows about — call this first
@@ -74,6 +96,7 @@ def get_facilities() -> list[dict]:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def get_facility(facility: str) -> dict:
     """Static facts for one facility: partitions, the resource-limit table,
     storage tiers, modules, and Spack. (IRI: GET /api/v1/facility)
@@ -85,6 +108,7 @@ def get_facility(facility: str) -> dict:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def get_resources(facility: str) -> list[dict]:
     """Live occupancy for one facility's compute partitions ("resources" in
     IRI terms) — allocated/idle/other/total node counts, i.e. "will a job
@@ -95,6 +119,7 @@ def get_resources(facility: str) -> list[dict]:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def get_resource(facility: str, name: str) -> dict:
     """Live occupancy for one named partition. (IRI: GET /api/v1/status/resources/{resource_id})"""
     for p in get_backend(facility).get_live_resources():
@@ -104,6 +129,7 @@ def get_resource(facility: str, name: str) -> dict:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def get_drained_nodes(facility: str) -> list[dict]:
     """Nodes currently drained/down and why (extension — not an IRI
     endpoint, but directly useful for "why won't my job start")."""
@@ -111,6 +137,7 @@ def get_drained_nodes(facility: str) -> list[dict]:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def get_projects(facility: str) -> list[dict]:
     """Projects (scheduler accounts) the current user may charge on this
     facility, each with the partitions and QOS it allows.
@@ -126,6 +153,7 @@ def get_projects(facility: str) -> list[dict]:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def get_project(facility: str, account: str) -> dict:
     """Details for a single project/account.
     (IRI: GET /api/v1/account/projects/{project_id})"""
@@ -139,6 +167,7 @@ def get_project(facility: str, account: str) -> dict:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def get_project_allocations(facility: str, project_id: str) -> dict:
     """A project's allocation limits — the account-wide ceilings shared by
     everyone under it.
@@ -152,6 +181,7 @@ def get_project_allocations(facility: str, project_id: str) -> dict:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def get_user_allocations(facility: str, project_id: str) -> dict:
     """The current user's allocation share within a project — the per-user
     slice of get_project_allocations' account-wide ceiling.
@@ -165,6 +195,7 @@ def get_user_allocations(facility: str, project_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
+@_configured_facility_tool
 def render_job_script(facility: str, spec: JobSpec) -> str:
     """Render the batch script for a JobSpec *without* submitting it, with
     that facility's defaults already applied. Use this to show the user
@@ -179,6 +210,7 @@ def render_job_script(facility: str, spec: JobSpec) -> str:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def submit_job(facility: str, spec: JobSpec) -> dict:
     """Submit a job to a facility's scheduler. Show the user the spec
     before submitting unless they asked to just run it — use
@@ -201,6 +233,7 @@ def submit_job(facility: str, spec: JobSpec) -> dict:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def get_job_status(facility: str, job_id: str) -> Job:
     """Status of a single job. (IRI: GET /api/v1/compute/status/{resource_id}/{job_id})"""
     jobs = get_backend(facility).get_statuses([job_id])
@@ -210,6 +243,7 @@ def get_job_status(facility: str, job_id: str) -> Job:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def get_job_statuses(facility: str, job_ids: list[str]) -> list[Job]:
     """Status of several jobs, or — if job_ids is empty — every job the
     current user has touched in roughly the last two days (on a facility
@@ -220,6 +254,7 @@ def get_job_statuses(facility: str, job_ids: list[str]) -> list[Job]:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def cancel_job(facility: str, job_id: str) -> Job | str:
     """Cancel a queued or running job. Confirm with the user before
     cancelling. (IRI: DELETE /api/v1/compute/cancel/{resource_id}/{job_id})"""
@@ -227,6 +262,7 @@ def cancel_job(facility: str, job_id: str) -> Job | str:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def update_job(facility: str, job_id: str, spec: JobSpec) -> Job:
     """Apply a JobSpec to an already-submitted job; return its new state.
     (IRI: PUT /api/v1/compute/job/{resource_id}/{job_id})
@@ -245,6 +281,7 @@ def update_job(facility: str, job_id: str, spec: JobSpec) -> Job:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def run_command_on_cluster(facility: str, command: str) -> str:
     """Run an arbitrary shell command on a facility's login node.
 
@@ -280,6 +317,7 @@ def run_command_on_cluster(facility: str, command: str) -> str:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_ls(facility: str, path: str = ".", show_hidden: bool = True) -> str:
     """List a directory's contents (long form). (IRI: GET /api/v1/filesystem/ls/{resource_id})"""
     flags = "-la" if show_hidden else "-l"
@@ -287,24 +325,28 @@ def fs_ls(facility: str, path: str = ".", show_hidden: bool = True) -> str:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_stat(facility: str, path: str) -> str:
     """File/directory metadata: size, permissions, timestamps, owner. (IRI: GET /api/v1/filesystem/stat/{resource_id})"""
     return run_command(facility, f"stat {quote_path(path)}")
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_view(facility: str, path: str) -> str:
     """Read a whole text file's contents. (IRI: GET /api/v1/filesystem/view/{resource_id})"""
     return run_command(facility, f"cat {quote_path(path)}")
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_head(facility: str, path: str, lines: int = 20) -> str:
     """Read the first N lines of a file. (IRI: GET /api/v1/filesystem/head/{resource_id})"""
     return run_command(facility, f"head -n {int(lines)} {quote_path(path)}")
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_tail(facility: str, path: str, lines: int = 20) -> str:
     """Read the last N lines of a file — useful for checking a running
     job's stdout/stderr. (IRI: GET /api/v1/filesystem/tail/{resource_id})"""
@@ -312,12 +354,14 @@ def fs_tail(facility: str, path: str, lines: int = 20) -> str:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_mkdir(facility: str, path: str) -> str:
     """Create a directory, including parents as needed. (IRI: POST /api/v1/filesystem/mkdir/{resource_id})"""
     return run_command(facility, f"mkdir -p {quote_path(path)}")
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_upload(facility: str, local_path: str, remote_path: str) -> dict:
     """Upload a local file to a facility via rsync (falling back to scp),
     with a SHA-256 verification of the transfer. (IRI: POST /api/v1/filesystem/upload/{resource_id} — deviation: rsync/scp)"""
@@ -325,6 +369,7 @@ def fs_upload(facility: str, local_path: str, remote_path: str) -> dict:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_download(facility: str, remote_path: str, local_path: str | None = None) -> dict:
     """Download a file from a facility via rsync (falling back to scp),
     with a SHA-256 verification of the transfer. (IRI: GET /api/v1/filesystem/download/{resource_id} — deviation: rsync/scp)
@@ -344,6 +389,7 @@ _RM_REFUSED = {"", ".", "..", "/", "~", "*", "$HOME"}
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_rm(facility: str, path: str, recursive: bool = False) -> str:
     """Delete a file, or (with recursive=True) a directory tree, on the
     cluster. (IRI: DELETE /api/v1/filesystem/rm/{resource_id})
@@ -380,12 +426,14 @@ def fs_rm(facility: str, path: str, recursive: bool = False) -> str:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_checksum(facility: str, path: str) -> str:
     """SHA-256 checksum of a remote file. (IRI: GET /api/v1/filesystem/checksum/{resource_id})"""
     return run_command(facility, f"sha256sum {quote_path(path)}")
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_cp(facility: str, source: str, dest: str, recursive: bool = False) -> str:
     """Copy a file or (with recursive=True) a directory tree on the
     cluster. (IRI: POST /api/v1/filesystem/cp/{resource_id})"""
@@ -394,18 +442,21 @@ def fs_cp(facility: str, source: str, dest: str, recursive: bool = False) -> str
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_mv(facility: str, source: str, dest: str) -> str:
     """Move or rename a file/directory on the cluster. (IRI: POST /api/v1/filesystem/mv/{resource_id})"""
     return run_command(facility, f"mv {quote_path(source)} {quote_path(dest)}")
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_chmod(facility: str, path: str, mode: str) -> str:
     """Change a file/directory's permissions, e.g. mode="755". (IRI: PUT /api/v1/filesystem/chmod/{resource_id})"""
     return run_command(facility, f"chmod {shlex.quote(mode)} {quote_path(path)}")
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_chown(facility: str, path: str, owner: str) -> str:
     """Change a file/directory's owner (and optionally group, as
     "user:group"). Most users can only chown within their own group's
@@ -415,12 +466,14 @@ def fs_chown(facility: str, path: str, owner: str) -> str:
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_symlink(facility: str, target: str, link_name: str) -> str:
     """Create a symbolic link at link_name pointing to target. (IRI: POST /api/v1/filesystem/symlink/{resource_id})"""
     return run_command(facility, f"ln -s {quote_path(target)} {quote_path(link_name)}")
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_compress(facility: str, paths: list[str], archive_path: str,
                  compression: CompressionType = CompressionType.GZIP,
                  match_pattern: str | None = None,
@@ -444,6 +497,7 @@ def fs_compress(facility: str, paths: list[str], archive_path: str,
 
 
 @mcp.tool()
+@_configured_facility_tool
 def fs_extract(facility: str, archive_path: str, dest_dir: str = ".") -> str:
     """Extract an archive on the cluster into dest_dir (created if needed).
     Compression format is auto-detected by tar. (IRI: POST /api/v1/filesystem/extract/{resource_id})"""

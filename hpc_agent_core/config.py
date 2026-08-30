@@ -263,6 +263,39 @@ def file_config(facility: "Facility | str") -> dict:
         raise RuntimeError(f"Malformed config file {path}: {e}") from e
 
 
+def require_facility_configuration(facility: "Facility | str") -> Facility:
+    """Return ``facility`` only when the user explicitly configured SSH.
+
+    A registered default host is descriptive metadata, not user setup.  MCP
+    entry points call this before dispatching any facility-scoped operation so
+    an unconfigured facility cannot appear available merely because a default
+    hostname happens to resolve.  ``<PREFIX>_HOST`` is the supported
+    file-free configuration override; otherwise the selected config file must
+    exist, parse as JSON, and contain a non-empty ``ssh.host``.
+    """
+    fac = resolve(facility)
+    path = config_path(fac)
+    if os.environ.get(f"{fac.env_prefix}_HOST", "").strip():
+        return fac
+    if not path.exists():
+        raise RuntimeError(setup_instructions(fac))
+    try:
+        contents = file_config(fac)
+    except Exception as exc:
+        raise RuntimeError(setup_instructions(
+            fac, problem=f"Configuration file {path} could not be read: {exc}",
+        )) from exc
+    host = contents.get("ssh", {}).get("host") if isinstance(contents, dict) \
+        and isinstance(contents.get("ssh"), dict) else ""
+    if not isinstance(host, str) or not host.strip():
+        raise RuntimeError(setup_instructions(
+            fac,
+            problem=(f"Configuration file {path} must set a non-empty "
+                     '"ssh.host" destination before this facility can be used.'),
+        ))
+    return fac
+
+
 def _section(facility: "Facility | str", key: str) -> dict:
     """A dict-typed top-level section of the config file, or {} if the key
     is absent *or* explicitly null (`{"ssh": null}` is valid JSON and an

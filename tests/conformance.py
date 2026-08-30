@@ -553,6 +553,32 @@ def check_facility(slug: str) -> None:
 
         with patch(
             "facilities.irene.compute.run_command",
+            return_value="gen1@rome OK normal\ngen1@v100 BONUS",
+        ) as command:
+            assert backend.get_projects() == [{
+                "account": "gen1", "partitions": ["rome", "v100"],
+                "status": [
+                    {"partition": "rome", "value": "OK normal"},
+                    {"partition": "v100", "value": "BONUS"},
+                ],
+            }]
+        assert command.call_args.args == ("irene", "ccc_compuse")
+
+        with patch(
+            "facilities.irene.compute.run_command",
+            side_effect=RuntimeError("Irene connection failed"),
+        ):
+            try:
+                backend.get_projects()
+            except RuntimeError as exc:
+                assert "Irene connection failed" in str(exc)
+            else:
+                raise AssertionError(
+                    "Irene returned an empty project list after its query failed"
+                )
+
+        with patch(
+            "facilities.irene.compute.run_command",
             side_effect=["gen-test@rome OK", "Submitted batch job 123456"],
         ) as command, patch(
             "facilities.irene.compute.write_remote_file",
@@ -591,6 +617,63 @@ def check_facility(slug: str) -> None:
         assert "/opt/age/bin/qsub" in checked
         assert "/opt/age/bin/qstat" in checked
         assert "sbatch" in checked
+
+        try:
+            backend.get_projects()
+        except NotImplementedError as exc:
+            assert "neither Grid Engine nor Slurm exposes per-project accounting" in str(exc)
+        else:
+            raise AssertionError(
+                "cell2026 returned an empty project list despite lacking project accounting"
+            )
+
+        # A successful resource list must cover both schedulers.  An empty
+        # list after failed SSH/configuration probes looks like valid empty
+        # occupancy to an MCP client, which is worse than a clear error.
+        with patch.object(
+            backend._slurm, "get_live_resources", return_value=[],
+        ), patch(
+            "facilities.cell2026.compute.run_command", return_value="",
+        ):
+            assert backend.get_live_resources() == []
+
+        with patch.object(
+            backend._slurm, "get_live_resources",
+            side_effect=RuntimeError("Slurm connection failed"),
+        ), patch(
+            "facilities.cell2026.compute.run_command",
+            side_effect=RuntimeError("Grid Engine connection failed"),
+        ):
+            try:
+                backend.get_live_resources()
+            except RuntimeError as exc:
+                message = str(exc)
+                assert "incomplete" in message
+                assert "Slurm, Grid Engine" in message
+                assert "Slurm connection failed" in message
+            else:
+                raise AssertionError(
+                    "cell2026 returned a resource list after both scheduler probes failed"
+                )
+
+        with patch.object(
+            backend._slurm, "get_live_resources",
+            return_value=[{"partition": "all", "nodes_total": 2}],
+        ), patch(
+            "facilities.cell2026.compute.run_command",
+            side_effect=RuntimeError("Grid Engine connection failed"),
+        ):
+            try:
+                backend.get_live_resources()
+            except RuntimeError as exc:
+                message = str(exc)
+                assert "incomplete" in message
+                assert "Grid Engine" in message
+                assert "Grid Engine connection failed" in message
+            else:
+                raise AssertionError(
+                    "cell2026 returned partial scheduler occupancy as a complete list"
+                )
 
         default = bare_spec()
         backend.apply_defaults(default)
@@ -826,21 +909,42 @@ def check_facility(slug: str) -> None:
         import json as _json
         _json.loads(_json.dumps(fac.config_example))
 
-    def unconfigured_tools_still_answer():
-        """The never-fail invariant, at tool granularity: everything that
-        doesn't need the cluster must keep working with no config at all,
-        so an agent can still orient the user before setup."""
+    def unconfigured_catalog_data_is_readable():
+        """Bundled data remains readable so setup directions can be built.
+
+        It is deliberately not exposed through a facility-scoped MCP call
+        before configuration: get_facilities is the sole no-config entry
+        point for discovering a machine and beginning its setup.
+        """
         with no_user_config(slug):
             assert config.load_facts(slug), "get_facility would fail unconfigured"
             assert config.docs_source(slug).exists(), "guide unreadable unconfigured"
             assert fac.display_name and fac.description, "get_facilities would be degraded"
+
+    def unconfigured_account_query_returns_setup():
+        """Capability errors must not mask the cold-start configuration path."""
+        from hpc_mcp.hpc_server import get_projects
+        with no_user_config(slug):
+            try:
+                get_projects(slug)
+            except RuntimeError as exc:
+                text = str(exc)
+                assert "not configured yet" in text
+                assert f"{slug}-configuring" in text
+            else:
+                raise AssertionError(
+                    "unconfigured get_projects did not return setup instructions"
+                )
 
     print(f"\n=== {slug} ({fac.display_name}) ===")
     check("registration is complete", registration_is_complete)
     check("facts JSON loads", facts_load)
     check("backend is bound to this facility", backend_knows_its_facility)
     check("setup directions are machine-specific and actionable", setup_directions_are_actionable)
-    check("no-config tools still answer (never-fail invariant)", unconfigured_tools_still_answer)
+    check("bundled catalog data remains readable without user config",
+          unconfigured_catalog_data_is_readable)
+    check("unconfigured account query returns setup directions first",
+          unconfigured_account_query_returns_setup)
     check("apply_defaults is idempotent", apply_defaults_is_idempotent)
     check("apply_defaults never overwrites caller values", explicit_values_survive_defaults)
     check("defaults -> validate -> render, or an actionable error", defaults_then_validate_then_render)
@@ -925,14 +1029,15 @@ def check_repo() -> None:
         that expanded to nothing) than an intent, so those must be refused
         before any command is built, not just discouraged in a docstring."""
         from hpc_mcp.hpc_server import fs_rm
-        for bad in ["", " ", ".", "..", "/", "~", "~/", "*", "$HOME", ".//"]:
-            try:
-                fs_rm("__no_such_facility__", bad)
-            except ValueError as e:
-                assert "Refusing to delete" in str(e), (
-                    f"{bad!r} reached facility lookup instead of being refused: {e}")
-            else:
-                raise AssertionError(f"fs_rm did not refuse {bad!r}")
+        with patch.dict(os.environ, {"CELL2026_HOST": "localhost"}):
+            for bad in ["", " ", ".", "..", "/", "~", "~/", "*", "$HOME", ".//"]:
+                try:
+                    fs_rm("cell2026", bad)
+                except ValueError as e:
+                    assert "Refusing to delete" in str(e), (
+                        f"{bad!r} was not refused before a command was built: {e}")
+                else:
+                    raise AssertionError(f"fs_rm did not refuse {bad!r}")
 
     def generated_skills_are_wellformed():
         """Every generated SKILL.md needs YAML frontmatter whose name
@@ -1214,6 +1319,51 @@ def check_repo() -> None:
                         f"{facility.slug}-remote-command" / "SKILL.md").read_text()
             assert "Git-over-SSH authentication failures" in rendered
 
+    def every_facility_scoped_mcp_tool_checks_configuration_first():
+        """No facility-specific public verb may bypass the shared guard."""
+        import hpc_mcp.hpc_server as server
+        from hpc_agent_core import docs_server
+
+        # The only intentionally unguarded hpc-mcp tool is get_facilities:
+        # callers need it to discover a facility before configuring one.
+        source = pathlib.Path(server.__file__).read_text()
+        assert source.count("@mcp.tool()") == source.count(
+            "@_configured_facility_tool") + 1
+
+        class RecordingMCP:
+            def __init__(self):
+                self.functions = []
+
+            def tool(self):
+                def register(func):
+                    self.functions.append(func)
+                    return func
+                return register
+
+        docs_mcp = RecordingMCP()
+        docs_server.build(docs_mcp)
+        assert len(docs_mcp.functions) == 3
+
+        for slug in (f.slug for f in config.list_facilities()):
+            with no_user_config(slug):
+                for func, args in (
+                    (server.get_facility, (slug,)),
+                    (server.render_job_script, (slug, bare_spec())),
+                    (server.fs_ls, (slug,)),
+                    (server.get_projects, (slug,)),
+                    (docs_mcp.functions[0], (slug, "queues")),
+                    (docs_mcp.functions[1], (slug,)),
+                    (docs_mcp.functions[2], (slug, "Queues")),
+                ):
+                    try:
+                        func(*args)
+                    except RuntimeError as exc:
+                        text = str(exc)
+                        assert "not configured yet" in text
+                        assert f"{slug}-configuring" in text
+                    else:
+                        raise AssertionError(f"{func.__name__} bypassed config guard")
+
     check("at least one facility is registered", facilities_exist)
     check("unknown facility errors clearly, listing valid slugs", unknown_facility_errors_clearly)
     check("slugs are lowercase and safe", slugs_are_url_and_identifier_safe)
@@ -1235,6 +1385,8 @@ def check_repo() -> None:
     check("every facility has real submitting-jobs notes", every_facility_has_skill_notes)
     check("remote-command skills diagnose forwarded Git authentication",
           remote_command_skills_cover_forwarded_git_authentication)
+    check("every facility-scoped MCP tool checks configuration first",
+          every_facility_scoped_mcp_tool_checks_configuration_first)
 
 
 def main() -> int:

@@ -374,7 +374,11 @@ class BridgeBackend(SchedulerBackend):
         return "\n".join(self._header(spec)) + self._body(spec)
 
     def _available_projects(self) -> list[dict]:
-        return _parse_compuse_projects(self._optional("ccc_compuse"))
+        # Project discovery is an account API operation, not a best-effort
+        # status lookup.  Propagate an SSH or Bridge failure so callers never
+        # mistake an empty parsed response for a successful query with no
+        # schedulable projects.
+        return _parse_compuse_projects(run_command(self.facility, "ccc_compuse"))
 
     def _validate_live_account(self, spec: JobSpec) -> None:
         projects = self._available_projects()

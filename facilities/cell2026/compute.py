@@ -507,17 +507,29 @@ class Cell2026Backend(SchedulerBackend):
         return self._slurm.update(job_id, normalized)
 
     def get_live_resources(self) -> list[dict]:
+        """Return occupancy only when both cell2026 schedulers answered.
+
+        Grid Engine and Slurm each cover different nodes at this facility.
+        Returning the result from one scheduler, or an empty list after both
+        probes fail, would look like a successful complete resource query to
+        callers.  That is especially misleading for an unconfigured user:
+        ``run_command`` supplies the actionable setup error, but the old
+        implementation swallowed it and returned ``[]``.
+        """
         resources = []
+        failures: list[tuple[str, RuntimeError]] = []
         try:
             for row in self._slurm.get_live_resources():
                 resources.append({**row, "scheduler": "slurm"})
         except RuntimeError as exc:
             _LOG.warning("cell2026 Slurm resource query failed: %s", exc)
+            failures.append(("Slurm", exc))
         qstat = self._gridengine._qbin("qstat")
         try:
             output = run_command(self.facility, f"{qstat} -g c")
         except RuntimeError as exc:
             _LOG.warning("cell2026 Grid Engine resource query failed: %s", exc)
+            failures.append(("Grid Engine", exc))
             output = ""
         for line in output.splitlines():
             fields = line.split()
@@ -530,6 +542,15 @@ class Cell2026Backend(SchedulerBackend):
                     "slots_available": int(fields[4]), "slots_total": int(fields[5]),
                     "slots_ao_acds": fields[6], "slots_error": fields[7],
                 })
+        if failures:
+            scheduler_names = ", ".join(name for name, _ in failures)
+            raise RuntimeError(
+                "cell2026 live resource data is incomplete because the "
+                f"following scheduler probe(s) failed: {scheduler_names}. "
+                "No occupancy data is returned unless both Grid Engine and "
+                "Slurm succeed.\n\n"
+                f"{failures[0][1]}"
+            ) from failures[0][1]
         return resources
 
     def get_drained_nodes(self) -> list[dict]:
@@ -537,7 +558,14 @@ class Cell2026Backend(SchedulerBackend):
                 for row in self._slurm.get_drained_nodes()]
 
     def get_projects(self) -> list[dict]:
-        return []
+        # Neither scheduler exposes a per-project account query here.  An
+        # empty success response would be indistinguishable from a completed
+        # query for a user with no accounts, and led clients to infer that
+        # the facility was reachable even when it was not configured.
+        raise self._unsupported(
+            "get_projects",
+            "neither Grid Engine nor Slurm exposes per-project accounting",
+        )
 
     def check_scheduler(self) -> bool:
         from hpc_agent_core.doctor import check_commands_on_path
