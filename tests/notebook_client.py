@@ -68,7 +68,17 @@ def check_download_wire_name() -> None:
 def check_sync_live_lazy_replay() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         cache = Path(tmp) / "cache"
-        params = dev_params("hpc_mcp", "hpc_server", env=dict(os.environ))
+        # get_facility reads only bundled static facts (no SSH), but every
+        # facility-scoped tool is gated by require_facility_configuration,
+        # which needs either a config file or the <PREFIX>_HOST env override.
+        # RIKYU_HOST=localhost satisfies the guard with no connection — the
+        # "localhost" value also means "no SSH" to the middleware — so this
+        # stays an offline test as the module docstring promises. CI has no
+        # ~/.hpc-agent/rikyu.json; a developer who has one is unaffected (the
+        # env override simply wins, same answer).
+        env = dict(os.environ)
+        env.setdefault("RIKYU_HOST", "localhost")
+        params = dev_params("hpc_mcp", "hpc_server", env=env)
 
         with connect_sync(params, mode="lazy", cache_dir=cache) as hpc:
             facilities = hpc.get_facilities()
