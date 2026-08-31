@@ -105,6 +105,33 @@ plugins/hpc-<selected-slug>/skills/    # one selected facility pack
 The Python package requires Python 3.10 or newer; the supplied plugin
 launcher uses [`uv`](https://docs.astral.sh/uv/).
 
+### pi
+
+[pi](https://github.com/earendil-works/pi-coding-agent) has no built-in MCP
+client, so the two MCP servers above are not enough on their own. This repo
+ships a pi package instead: the bundled extension
+(`plugins/hpc/pi/extensions/hpc-mcp-bridge.ts`) is a minimal MCP stdio client
+that spawns those same two servers and registers every tool natively, and it
+gates which facility skills land in your context by your selection. Install
+once with `uv` available (the servers are fetched by `uv tool run`, same as
+the other harnesses):
+
+```sh
+pi install git:github.com/william-dawson/hpc-agent-core@unified-hub
+```
+
+On the first session afterward, pi asks which facilities you want to load
+skills for (pick one, repeat, then Done; facilities you've already
+configured are pre-checked). Tools are always all of them — they take an
+explicit `facility` argument — so selection only controls which skill packs
+consume context. Add or remove a facility later with `/hpc-add <slug>` and
+`/hpc-remove <slug>`, which reload to apply the change. Then configure access
+as below; the selection persists in `~/.hpc-agent/hpc-pi-selection.json`.
+
+The extension is the only pi-specific artifact and reuses the repo's MCP
+servers, `.mcp.json`, and skills unchanged — it is the pi analog of
+`.codex-plugin/` and `.claude-plugin/`.
+
 ## Configure
 
 Each cluster has its own settings file at `~/.hpc-agent/<name>.json` — one
