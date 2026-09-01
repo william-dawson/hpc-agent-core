@@ -131,24 +131,143 @@ completed an end-to-end check against the current live system.
 
 ## Outstanding code-review work
 
-Resolve these findings before the next facility integration. The two P1
-findings are fixed and covered by `tests/conformance.py`; what remains
-is P2.
+Review of `3547d9d..4590ec2` (2026-09-01). Each item says whether it was
+reproduced or is still a reading of the code — don't downgrade an
+unverified one without checking it, and don't re-verify one marked
+**verified** from scratch.
 
-- **P2 — make the CELL2026 doctor honor `CELL2026_GE_BIN`.** Runtime Grid
-  Engine commands use the configured AGE binary prefix, while
-  `check_scheduler()` probes only bare command names. A correctly configured
-  installation must not fail doctor merely because AGE is outside `PATH`.
-- **P2 — extract Miyabi's actual PBS working directory.** `qstat -f` exposes
-  it inside `Variable_List` as `PBS_O_WORKDIR=...`; do not publish the complete
-  comma-separated variable list as `meta_data.workdir`. Add parser and live
-  smoke coverage so output discovery uses the real directory.
-- **P2 — reject TSUBAME's `prior` subscription queue in trial mode.** No group
-  means the constrained free trial, whereas `prior` is the subscription queue.
-  Require an account/group when `queue_name="prior"` and test that combination.
+Two of these are only visible with an *empty* `~/.hpc-agent/`. A developer
+machine has config for its own clusters, so both the CI failure and the
+unconfigured-tool behaviour pass locally and fail in CI. Reproduce with:
 
-After fixing these, rerun `tests/conformance.py`, `tests/notebook_client.py`,
-both generated-output checks, `git diff --check`, and the wheel-data check.
+```bash
+HOME=$(mktemp -d) .venv/bin/python tests/notebook_client.py
+```
+
+### P1
+
+- **The `fs_rm` refusal test can delete the test runner's own files.**
+  `tests/conformance.py:1032` sets `CELL2026_HOST=localhost` and calls the
+  real `fs_rm` over `["", " ", ".", "..", "/", "~", "~/", "*", "$HOME",
+  ".//"]`. `middleware.is_local_host("localhost")` is true, so this runs in
+  a bare local shell on the machine running the tests — no SSH, no cluster.
+  The `_RM_REFUSED` guard stops all ten today, but this test exists to catch
+  a regression *in that guard*, and the moment it regresses the test runs
+  `rm -r -- ~` against a real home directory instead of failing. The test's
+  only safety net is the code under test. Point it at an unreachable
+  non-local host, or patch `hpc_mcp.hpc_server.run_command`.
+  **Verified:** a canary file passed to `fs_rm("cell2026", ...)` under
+  `CELL2026_HOST=localhost` was really deleted from the local filesystem.
+
+- **The configuration gate also blocks the tools that need no cluster.**
+  `73fd713` wrapped every facility-scoped tool in
+  `require_facility_configuration`. That is right for anything that opens
+  SSH, but `get_facility` reads a packaged JSON file and the three docs
+  tools read a packaged index; neither can "present an unconfigured
+  facility as ready". Consequences: `tests/notebook_client.py` fails in CI
+  (red for three runs); the `<slug>-reference` skill becomes circular,
+  since its whole job is `search_docs` + `get_facility` and both now demand
+  config a new user does not have; and the conformance check
+  `no-config tools still answer (never-fail invariant)` — added by
+  `e2ea19c` to guarantee an agent can orient a user *before* setup — was
+  deleted rather than satisfied. Keep the gate on cluster-bound tools, drop
+  it from `get_facility` and the docs tools, and restore the invariant check.
+  **Verified:** against the real MCP server with an empty HOME,
+  `get_facilities` works while `get_facility` and `search_docs` both return
+  "is not configured yet".
+
+### P2
+
+- **Miyabi loses `PBS_O_WORKDIR` to line wrapping.** `_parse_blocks`
+  (`facilities/miyabi/compute.py`) keeps only lines containing `" = "`, so
+  PBS's tab-indented continuation lines are silently dropped. `qstat -f`
+  wraps attribute values at ~80 columns, and `PBS_O_WORKDIR` sorts *after*
+  `PBS_O_PATH` inside `Variable_List`, so it falls past the first wrap and
+  `_pbs_workdir` returns `""`. Use `qstat -f -w`, or append continuation
+  lines to the previous key in `_parse_blocks`.
+  **Verified offline** (parsed value truncates mid-`PBS_O_LOGNAME`);
+  **not verified live** — the multiplexed master had expired, and
+  re-checking needs the user's one-time code.
+
+- **`live_smoke.py`'s new Miyabi workdir assertion may fail the `--job`
+  tier.** `assert workdir.startswith("/")` runs after the job reaches a
+  terminal state, where `get_statuses` can fall through to `_parse_history`,
+  whose `meta_data` has no `workdir` key at all. With the wrapping bug above
+  this asserts on `""`, and the miyabi `candidates` list collapses to one
+  unusable path. **Not verified** — blocked on the same live access.
+
+- **The universal staging bullet contradicts Fugaku's own quota warning.**
+  In `plugins/hpc-fugaku/skills/fugaku-submitting-jobs/SKILL.md`, line 64
+  says jobs run from the group data area and *not* `$HOME`, because home is
+  a 20 GiB area whose quota large outputs "can exhaust mid-run"; line 107 —
+  from `templates/skills/submitting-jobs.md.tmpl` — says to stage run
+  directories under `~/agent/work/`, which is in home. The universal bullet
+  is the more prescriptive of the two, so an agent follows it into exactly
+  the failure the facility note warns about. Give the template bullet an
+  "unless the facility notes say otherwise" carve-out, or let
+  `{{FACILITY_NOTES}}` override it. **Verified** in the rendered skill.
+
+- **cell2026's demo aborts on a correctly configured machine.** The demo
+  skill calls `get_projects` "to prove SSH is actually reachable" and says
+  to stop if it errors, but cell2026's `get_projects` now unconditionally
+  raises `NotImplementedError` (`179229e` changed it from `return []`).
+  Fugaku's `skill_notes/demo.md` was updated for this same mismatch;
+  cell2026's was not. **Verified** — the call raises; note the skill's stop
+  condition says "isn't configured" while the error says "does not
+  support", so the abort is likely but not certain.
+
+- **CI's fork-PR message sends contributors into a loop.** The step runs
+  three generators (`.github/workflows/ci.yml:48-50`) but the error at
+  line 65 names only `render_facility_tables.py` and `render_skills.py`. A
+  fork contributor follows it verbatim, never runs `render_plugins.py`, and
+  fails again on the same step with the same message. **Verified** by
+  reading the workflow.
+
+### P3
+
+- **`rccs_cloud`'s embeddings are stale relative to its chunks.** The
+  MPICH guide edit regenerated `chunks.json` (last commit 2026-08-30) but
+  not `embeddings.npy` (2026-08-18). The shapes still match, so nothing
+  raises; semantic search just ranks on the old OpenMPI text. Re-run the
+  ingest and commit the `.npy`. **Verified** from git dates.
+- **`rccs_cloud` prose still says OpenMPI.** `skill_notes/submitting-jobs.md`
+  now names `mpi/mpich-x86_64` but the sentence still reads "launch with
+  `mpirun` (OpenMPI) instead", and the following paragraph's hostfile/PMI
+  reasoning is OpenMPI-specific. Re-check against MPICH's Hydra.
+- **`plugins/hpc/.mcp.json` is hand-maintained; the generator owns
+  `mcp.json`.** The harnesses load the file the generator does not own, so
+  a branch or entry-point change updates one and leaves the other pointing
+  at the old ref. Generate both, or derive one from the other.
+- **Orphaned generated-skill directories are no longer detected.**
+  `b67dbdc` removed the check wholesale so hand-authored custom skills
+  would not be flagged. Generated and hand-written skills are
+  indistinguishable on disk today, which is why it had to go rather than be
+  refined; treating only `<slug>-<workflow>` directories as managed (or
+  adding a frontmatter marker) would restore it. `render_plugins.py` also
+  never removes a stale `plugins/hpc-<slug>/`.
+- **`render_plugins.py`'s `manifest_version` never bumps, and reads only
+  the Codex manifest.** Regenerating after a description change rewrites
+  the manifest without a version bump, so clients cache stale skills; and a
+  version bumped in `.claude-plugin/plugin.json` is overwritten with
+  Codex's value on the next render. This conflicts with the repo
+  convention that every plugin edit bumps the version.
+- **`_parse_group_point` calls `int()` unguarded.** Four CSV cells are
+  converted without a `try`, and `_group_point_or_none` catches only
+  `RuntimeError`, so one odd row would take down `get_projects` for every
+  group. **Checked live:** Fugaku emits clean integers for all of
+  `ra000009`, `ra250029`, `hp250291`, and `trial` correctly has no
+  `GROUP_POINT` row at all — so this is robustness, not a live defect.
+
+### Housekeeping
+
+- **`live_smoke.py` still aborts the whole run on an unreachable facility.**
+  The agreed change — skip it and report the reason, since no one person
+  has access to every machine — was never implemented; `179229e` touched
+  that file for the Miyabi workdir assertion instead.
+
+After fixing these, rerun `tests/conformance.py`, `tests/notebook_client.py`
+(also under an empty `HOME`), all three generated-output checks,
+`git diff --check`, and the wheel-data check.
 
 ## Tool coverage
 
