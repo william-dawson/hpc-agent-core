@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hpc-agent-core"
-version = "0.5.0"
+version = "0.5.1"
 description = "Shared runtime for the HPC MCP agent family: SSH middleware, PSI/J-style job models, scheduler backends, docs RAG, doctor, and serving, reused across per-machine plugins (Rikyu, HOKUSAI, Octopus, ...)."
 readme = "README.md"
 license = {text = "AGPL-3.0-or-later"}
@@ -23,7 +23,18 @@ dependencies = [
     # pin in this file. Bump deliberately, after testing against the new
     # version, not by widening a ceiling.
     "mcp==2.0.0",
-    "remotemanager",
+    # remotemanager is the entire transport layer: every cluster call in
+    # middleware.py goes through a remotemanager Computer, so a change in
+    # how it opens connections, quotes payloads or reports failures changes
+    # the behaviour of every tool on every machine at once. It ships from a
+    # single upstream on a fast cadence (0.13.10 through 0.14.3 in recent
+    # months), and it was unpinned here while mcp next door was pinned for
+    # exactly the reason that applies to it too: a range still lets a
+    # routine upstream release decide what a fresh install resolves to,
+    # with no decision on our part. 0.14.3 is the version every facility in
+    # this family has been live-verified against. Bump deliberately, after
+    # re-running each machine's smoke test, not by widening a ceiling.
+    "remotemanager==0.14.3",
     "httpx",
     "numpy",
     "pydantic",
