@@ -16,29 +16,12 @@ Used by:
 - [Fugaku-Agent](https://github.com/RIKEN-RCCS/Fugaku-Agent) — Supercomputer Fugaku
 - and several other machines across the globe.
 
-## One server for every machine: HPC Rookery
+## Moving to HPC Rookery
 
-The repositories above are one-per-machine: each is its own plugin, its own
-MCP server, its own installation, all built on this package. That keeps each
-machine's quirks in its own place, but an agent working across several of them
-juggles several plugins and several tool namespaces at once.
-
-[**HPC Rookery**](https://github.com/william-dawson/hpc-rookery) is the same
-idea folded into one repository: one plugin, one MCP server, and every machine
-reachable through a single tool surface, with an explicit `facility` slug on
-every call. Nine machines live there today (Fugaku, HOKUSAI BigWaterfall2,
-Miyabi, R-CCS Cloud and Rikyu validated against their real schedulers;
-cell2026, Irene, Octopus and TSUBAME4.0 ported and passing the offline suite).
-Porting a machine there means opening a pull request that adds one
-`facilities/<slug>/` directory rather than bootstrapping a new repository.
-
-Rookery grew out of this project and still carries a copy of this package, but
-it is a **divergent fork, not a consumer**: every entry point there takes a
-facility argument, so the two are not API-compatible and a change in one has to
-be re-derived in the other rather than copied. Neither replaces the other —
-pick the single-machine model here if you want one cluster in its own
-self-contained repository, and Rookery if you want several clusters behind one
-server.
+We are consolidating these per-machine repositories into
+[HPC Rookery](https://github.com/william-dawson/hpc-rookery), which merges the
+machines together: one plugin, one server, every cluster behind a single tool
+surface. Nine machines are there already. If you are starting now, start there.
 
 ## Building a new agent for a new cluster?
 
@@ -66,10 +49,8 @@ a new agent for X"
 The coding agent will make all the design decisions and implement all the
 cluster specific code.
 
-If you would rather add your machine to the unified server than stand up a
-repository for it, HPC Rookery takes the same approach with its own porting
-guide: point your agent at that repository's `PORTING.md` instead, and it adds
-a single `facilities/<slug>/` directory.
+To add your machine to HPC Rookery instead, point your agent at that
+repository's `PORTING.md`; it adds one `facilities/<slug>/` directory.
 
 ### Tool surface: the IRI Facility API
 
